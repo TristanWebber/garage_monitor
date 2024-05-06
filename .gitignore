@@ -1,0 +1,8 @@
+.pio
+.vscode/
+.git
+.clangd
+.cache/
+build/
+sdkconfig
+sdkconfig.old
