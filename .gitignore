@@ -1,8 +1,14 @@
+# build, git and lsp files & folders
 .pio
 .vscode/
 .git
 .clangd
 .cache/
+compile_commands.json
 build/
 sdkconfig
 sdkconfig.old
+
+# secrets
+ca_cert.h
+config.h

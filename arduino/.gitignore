@@ -1,0 +1,7 @@
+.pio
+.vscode
+src/caCert.h
+src/config.h
+compile_commands.json
+.cache
+.clangd
