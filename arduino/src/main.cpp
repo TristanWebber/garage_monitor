@@ -28,16 +28,18 @@ bool first_send = true;
 void loop() {
 
     // Send ping at intervals to maintain connection
-    if (millis() - last_ping >= SECONDS_TO_MILLIS(MQTT_PING_INTERVAL)) {
+    bool ping_now = millis() - last_ping >= SECONDS_TO_MILLIS(MQTT_PING_INTERVAL);
+    if (ping_now) {
         connection_handler();
         last_ping = millis();
     }
 
     // Read sensors and publish data at intervals
-    if ((millis() - last_send >= SECONDS_TO_MILLIS(PUBLISH_INTERVAL)) || first_send) {
+    bool send_now = (millis() - last_send >= SECONDS_TO_MILLIS(PUBLISH_INTERVAL)) || first_send;
+    if (send_now) {
 
         SensorData sensor_data;
-        read_sensors(&sensor_data);
+        sensor_read(&sensor_data);
 
         // Publish data to the broker
         connection_handler();

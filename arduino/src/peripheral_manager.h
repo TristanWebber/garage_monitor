@@ -14,6 +14,6 @@ extern SensorData sensor_data;
 void sensor_init();
 
 // Take reads from sensors
-bool read_sensors(SensorData *sensor_data);
+bool sensor_read(SensorData *sensor_data);
 
 #endif /* PERIPHERAL_MANAGER_H */

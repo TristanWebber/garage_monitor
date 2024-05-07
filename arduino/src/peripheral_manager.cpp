@@ -14,7 +14,7 @@ void sensor_init() {
 }
 
 // Record reads from the sensors to the SensorData struct
-bool read_sensors(SensorData *sensor_data) {
+bool sensor_read(SensorData *sensor_data) {
 
     // Switch is normally open. A high read means the door is closed
     DBG_PRINTLN("Taking a read from the door sensor");
