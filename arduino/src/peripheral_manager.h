@@ -8,8 +8,6 @@ typedef struct SensorData
   float humidity;
 } SensorData;
 
-extern SensorData sensor_data;
-
 // Setup the connection to the sensors
 void sensor_init();
 

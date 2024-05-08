@@ -1,32 +1,40 @@
-TODO ToC
 # Garage Monitor
 
-Ever feel like you've left without shutting the door, leaving your prized possessions visible to all passers by? Have you ever doubled back home only to find you shut the door after all? Or worse, discovered that your hunch was correct and you carelessly forgot to close it?
+- [Introduction](#introduction)
+- [The Journey](#the-journey)
+- [Solutions](#solutions)
+- [Hardware](#hardware)
+- [Dashboard](#dashboard)
 
-This project seeks to solve this by detecting the garage door status and transmitting it to a cloud service, allowing for the status to be checked on your phone.
+## Introduction
+
+Have you ever felt like you left home without shutting the door, leaving your prized possessions visible to all passers by? Have you ever doubled back home only to find the dooe was shut after all and just wasted a bunch of time checking?
+
+This project seeks to solve this by using a microcontroller to detect the garage door status and transmitting it to a cloud service, allowing for the status to be checked on your phone.
 
 For a modern microcontroller, that is an easy life. Similarly, for the author, who routinely writes firmware for a day job, it's not a major challenge. To ensure neither the microcontroller or the engineer get too bored the project will add some other features, and demonstrate a number of different solutions to the problem.
 
-## Solutions
+## The Journey
 
-The project will detect the garage door status with a reed switch. It will read temperature and humidity in the garage with a digital sensor with a single wire bus. This data will be published via MQTT over WiFi. It is not necessary to read from the sensors constantly so the microcontroller can be put to sleep when it's not actively reading a sensor or transmitting data.
+This project is as simple or as complex as you care to make it. It is very easy to articulate what needs to be done by the microcontroller at a high level, so the problem presents a good opportunity to walk through a range of solutions and focus on the nuance of the implementation, rather than thrashing around with a particularly hard problem. My goal is to create the project multiple times, and in each subproject I will explore a different concept. In rough terms, I will start the journey at a relatively high level and perform all tasks with abstraction, then I will gradually descend closer to the hardware and investigate pros and cons of having a low level of control.
 
-To look at our data, the project will use existing low code cloud products.
+This project touches on many common features of embedded firmware design including:
 
-This solution touches on many common features of embedded firmware design including:
 - Inputs / Outputs
 - Managing multiple tasks
 - Telemetry
 - Power management and Interrupts
 
-TODO links
-To demonstrate numerous ways to solve the problem, the project will use the following approaches, presented in roughly increasing order of complexity:
-1. Using Arduino framework
-2. Using ESP-IDF
-3. Using ESP-IDF and C++
-4. Using Rust and the `std` crate
-5. Using Rust and the `no-std` crate
-6. Using baremetal C to implement just the I/O features
+At the early implementations, some of these aspects will be dealt with in single-liners or not at all. The later projects will aim to pick one or more of these features as a theme of exploration.
+
+## Solutions
+
+The basic details of the solution will be common to all subprojects. The project will: 
+
+- Detect the garage door status with a reed switch
+- Read temperature and humidity with a digital sensor 
+- Publish data via MQTT over WiFi
+- Schedule readings and transmissions
 
 ## Hardware
 
@@ -39,7 +47,27 @@ TODO links
 - Raspberry Pi power supply
 - 3D printed case
 
-## How to solve
+TODO assembly guide
+
+## Dashboard
+
+To subscribe to and visualise our data, the project will use existing low code cloud products. For all of the proposed solutions, I have set up a very basic dashboard as follows:
+
+TODO: Add links and screenshots
+
+## Jump In
+
+TODO links
+The subprojects are as follows, presented in roughly increasing order of implementation complexity:
+1. Using Arduino framework
+2. Using ESP-IDF
+3. Using ESP-IDF and C++
+4. Using Rust and the `std` crate
+5. Using Rust and the `no-std` crate
+6. Using baremetal C to implement just the I/O features
+
+
+## Misc - topics to explore in subprojects. To remove
 
 - Wake up due to powerup, interrupt or timer
 - Take a digital read from the reed switch pins
