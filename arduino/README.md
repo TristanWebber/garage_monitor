@@ -25,10 +25,16 @@ The project has been developed using PlatformIO for build tools. This makes down
 
 This series of projects is presented as an educational piece, however if you simply want to take some or all of the repository and use it for your own projects without suffering through the narrative you can:
 
-0. Acquire and assemble the appropriate hardware TODO: link
-1. Setup a dashboard TODO: link
-1. Ensure you have an appropriate build tool like PlatformIO or Arduino TODO: link
-2. Clone the repository TODO: link
+0. [Acquire and assemble](https://github.com/TristanWebber/garage_monitor/blob/main/README.md#hardware) the appropriate hardware
+1. Setup a [dashboard](https://github.com/TristanWebber/garage_monitor/blob/main/README.md#dashboard)
+1. Ensure you have an appropriate build tool like [PlatformIO](https://platformio.org/install) or [Arduino](https://support.arduino.cc/hc/en-us/articles/360019833020-Download-and-install-Arduino-IDE)
+2. Clone the repository. If you are only interested in this subproject, use `sparse-checkout`
+```bash
+git clone --no-checkout https://github.com/TristanWebber/garage_monitor.git && \
+cd garage_monitor && \
+git sparse-checkout arduino && \
+git checkout
+```
 3. [Update](#other-files) and rename the `_config.h` file
 4. [Update](#wifi) and rename the `_ca_cert.h` file
 5. [Build and flash](#building-and-flashing) the project to your microcontroller
@@ -236,7 +242,7 @@ Your broker may have a well established way to get certificates. But for a cloud
 openssl s_client -connect your-broker.com:8883 -showcerts < /dev/null 2> /dev/null | openssl x509
 ```
 
-Then the certificate can be copy/pasted into the `ca_cert.h` file.
+Then the certificate can be copy/pasted into the `_ca_cert.h` file, after renaming by dropping the leading `_`. The template header file is named this way because the `.gitignore` is set to ignore the certificate file to prevent accidental sharing of potentially sensitive information.
 
 ### MQTT
 
@@ -256,7 +262,7 @@ The requirement to reconnect in the event one of the services disconnects introd
 
 Anywhere there is a constant, or some configuration required for the implementation, I have opted to define in the `config.h` file. This provides a convenient central location where all device settings (pin allocations, wifi and mqtt credentials, intervals between reads etc.) can be stored. This approach allows for those to be changed in a single location, and makes it straightforward to avoid sharing sensitive information because it's the only one location that needs to be excluded from a repository.
 
-In the repository, a sanitised `_config.h` is included as a template. This needs to be updated on a case by case basis to ensure that the WiFi and MQTT credentials are set for the specific application.
+In the repository, a sanitised `_config.h` is included as a template. If you intend to use this for your own project, it will need to be renamed by dropping the leading `_` and the contents updated to ensure that the WiFi and MQTT credentials are set for the specific application. The template header file is named this way because the `.gitignore` is set to ignore the certificate file to prevent accidental sharing of potentially sensitive information.
 
 The `debug_print.h` file is a collection of macros allowing a straightforward approach to managing whether or not the microcontroller sends diagnostics to the serial interface. The reason for this choice is that the debug messages are useful in development, but in production, the device will not be connected to a computer, therefore debug messages to the serial are useless.
 
@@ -275,7 +281,9 @@ pio run -e seeed_xiao_esp32c3 -t upload --upload-port /dev/ttyACM0
 pio device monitor -e seeed_xiao_esp32c3 -b 115200 -p /dev/ttyACM0
 ```
 
-Arguments can be combined, however for the first compile I prefer to separate them so if a step fails, it's easier to isolate where the problem occurred.
+Your port may be different. Arguments can be combined, however for the first compile I prefer to separate them so if a step fails, it's easier to isolate where the problem occurred.
+
+You can eliminate the need to specify most of these arguments by placing additional information in your `platformio.ini` file. For example, adding `monitor_speed = 115200` and `monitor_port = /dev/ttyACM0` to the environment configuration will eliminate the requirement for these arguments when using monitor command.
 
 ## Observations and Next Steps
 

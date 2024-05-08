@@ -59,7 +59,7 @@ TODO: Add links and screenshots
 
 TODO links
 The subprojects are as follows, presented in roughly increasing order of implementation complexity:
-1. Using Arduino framework
+1. [Using Arduino framework](https://github.com/TristanWebber/garage_monitor/tree/main/arduino)
 2. Using ESP-IDF
 3. Using ESP-IDF and C++
 4. Using Rust and the `std` crate
