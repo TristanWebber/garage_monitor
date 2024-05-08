@@ -8,7 +8,7 @@
 
 // Sensor settings
 #define DOOR_SW_PIN          D1
-#define PHASE_2_PIN          A2
+#define PHASE_2_PIN          D2
 #define DHT_TYPE             DHT22
 
 // WiFi settings
