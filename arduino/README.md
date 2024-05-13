@@ -295,4 +295,4 @@ Another flaw in this implementation is that the read interval dictates the progr
 
 This leads nicely into our next subproject - Implementing the device using the ESP-IDF framework and FreeRTOS to manage tasks. In the next project, getting involved in lower level control will allow for some of the above shortfalls in the Arduino implementation to be resolved. This will come at the expense of the implementation being slightly more challenging and a little more abstract in nature.
 
-Check it out here TODO: link
+Check it out [here](https://github.com/TristanWebber/garage_monitor/tree/main/esp_idf)
