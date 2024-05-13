@@ -1,0 +1,15 @@
+dependencies:
+  idf:
+    component_hash: null
+    source:
+      type: idf
+    version: 5.3.0
+  suda-morris/am2302_rmt:
+    component_hash: b46dd8c20dee72654e8ea4a43b16e8a93e984a6c10426392a4b8486fed50ca93
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.0.0
+manifest_hash: c21085da6221f8b9dd64ba76c2526099d99a3aa2579f75680e525e3443f470cc
+target: esp32c3
+version: 1.0.0
