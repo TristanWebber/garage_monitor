@@ -2,10 +2,8 @@
 #define DHT22_H
 
 #include <array>
-#include <cstdint>
 
 #include "esp_err.h"
-#include "soc/gpio_num.h"
 #include "hal/gpio_types.h"
 
 class DHT22 {
@@ -25,14 +23,11 @@ private:
     float _temperature = 0;
     float _humidity = 0;
     bool _real_data = false;
-    int64_t _us_delay_compensation = 0;
 
     void gpio_pin_mode(gpio_mode_t mode);
     esp_err_t read_bits(void);
-    uint16_t expect_pulse(bool level);
     esp_err_t convert_data(void);
-    void us_delay(uint64_t us_delay);
-    uint64_t us_delay_calibrate(void);
+    uint16_t expect_pulse(bool level);
 
 public:
     DHT22(gpio_num_t dht_pin);

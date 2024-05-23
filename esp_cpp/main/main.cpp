@@ -1,5 +1,4 @@
 #include "esp_err.h"
-#include "freertos/projdefs.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
