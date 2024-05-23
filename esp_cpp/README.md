@@ -164,9 +164,14 @@ Sensors::~Sensors(void) {
 
 This allows a unique DHT22 instance to be dynamically allocated to each Sensors instance, and the destructor method allows the memory to be freed if the Sensors instance goes out of scope.
 
-### Wifi and MQTT managers
+### Wifi and MQTT managers, Config file
 
-### Config file
+Compared to the C ESP-IDF implementation, the approach in the C++ version is similar. The notable exceptions are:
+
+- Using classes
+- The use of `enum class` to store the state of the connection. This allows the application to better handle when the wifi or mqtt connections are not present
+- The classes handle and return errors, rather than the approach in the previous implementation where any error resulted in a panic
+- Mutexes are used to prevent race conditions
 
 ## The DHT22 driver files
 
@@ -504,11 +509,8 @@ Commands to build, flash and monitor the project are as per the previous project
 
 ## Observations and Next Steps
 
-The move from the Arduino framework to ESP-IDF resulted in an incrementally higher level of challenge but an exponentially greater level of control over implementation details. Everything the project set out to do has been achieved in this step, and it should be clear that by learning the details of FreeRTOS, there is a huge amount of freedom that can be gained in approaches to problems.
+This implementation has shown that C++ is easily used with ESP-IDF. This can deliver benefits in the form of higher level features and data structures and allows for better control of interfaces, particularly where a project may use multiple instances of a sensor. The exercise of creating a driver for the DHT22 sensor allowed for a practical investigation into how to communicate with a digital device. It also gave a deep dive in to the realities of how FreeRTOS interacts with tasks.
 
-The next subproject will explore two ideas existing at opposite ends of a spectrum:
+The next subproject will explore using Rust with the ESP32, via the Standard Library.
 
-- Writing a basic driver for DHT, and explore how the devices actually communicate with each other
-- Using C++ to see how some concepts of a higher level language can be used in embedded development
-
-Check it out [here](https://github.com/TristanWebber/garage_monitor/tree/main/esp_cpp)
+Check it out [here](https://github.com/TristanWebber/garage_monitor/tree/main/rs_std)
