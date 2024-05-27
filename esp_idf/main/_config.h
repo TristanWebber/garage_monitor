@@ -1,9 +1,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include "soc/gpio_num.h"
-
 #define PUBLISH_INTERVAL      300                  // Sleep for 5 minutes
+#define DEBOUNCE_DURATION     50                   // Milliseconds
 
 // Sensor settings
 #define DOOR_SW_PIN           GPIO_NUM_3

@@ -7,7 +7,7 @@
 - [The `main` File](#the-main-file)
 - [The `peripheral_manager` Files](#the-peripheral_manager-files)
 - [The `connection_manager` Files](#the-connection_manager-files)
-- [Interrupts and task notifications](#interrupts-and-task-notifications)
+- [Interrupts and debounce timers](#interrupts-and-debounce-timers)
 - [Building and Flashing](#building-and-flashing)
 - [Observations and Next Steps](#observations-and-next-steps)
 
@@ -316,64 +316,60 @@ extern const uint8_t datacake_ca_pem_start[]   asm("_binary_ca_cert_pem_start");
 extern const uint8_t datacake_ca_pem_end[]     asm("_binary_ca_cert_pem_end");
 ```
 
-## Interrupts and task notifications
+## Interrupts and debounce timers
 
 That now gives us a baseline implementation that replicates the functionality from the Arduino version of the project, with some minor improvements along the way. Arguably those improvements are a poor justification for the extra learning curve, so let's target one of the major shortfalls from the previous implementation - Publishing the door state change as it occurs.
 
 Right now, the `gpio_get_level()` IDF function is used to read the door state on demand. It's possible to attach an interrupt handler to a pin, triggering the execution of a task whenever certain changes are detected on a pin. For our application, it would be ideal to have the state of the reed switch published as the changes occur, so as a `positive edge` OR `negative edge` happen, some code should be triggered to publish the state of the digital input. One approach is to add another init function and handler:
 
 ```C
-static TaskHandle_t door_interrupt_handle = NULL;
-
 void interrupt_init() {
     gpio_set_intr_type(DOOR_SW_PIN, GPIO_INTR_ANYEDGE);
     gpio_install_isr_service(0);
-    gpio_isr_handler_add(DOOR_SW_PIN, door_state_change_task, door_interrupt_handle);
+    gpio_isr_handler_add(DOOR_SW_PIN, door_state_change_callback, (void *)args);
 }
 
-static void door_state_change_task(void *pvParameters) {
+static void door_state_change_callback(void *pvParameters) {
     //do stuff
 }
 ```
 
-This does part of what we want - Every time the `isr_service` detects `ANYEDGE` on `DOOR_SW_PIN`, the `door_state_change_task` will be called. In a perfect world, all of the logic to read the sensor and publish the read could go in the `door_state_change_task` function, however the ESP32 places these interrupt handlers in IRAM memory, a very fast area of memory that has a stack size limit. Implementation of this handler should therefore focus on triggering another task in IROM (Code executed from flash).
+This does part of what we want - Every time the `isr_service` detects `ANYEDGE` on `DOOR_SW_PIN`, the `door_state_change_callback` will be called. In a perfect world, all of the logic to read the sensor and publish the read could go in the `door_state_change_callback` function, when the switch is closed or open, the switch actually 'bounces' between those states many times in fractions of a second before the actual state settles. It's possible to debounce in software by simply adding a delay to wait out whatever happens in this stabilisation period.
 
-This introduces another concept in FreeRTOS - Task notifications. Recall that the `read_and_send` task created in the first pass of the `main` file is managed by the task scheduler. It runs based to the interval we set at compile time. A task notification schedules tasks based on a notification being passed around. This is one approach to minimising the work needed by the `door_state_change_task` in IRAM. And example of this, :
+This introduces another concept in FreeRTOS - Software timers. Using a FreeRTOS timer, we can delay any action from the interrupt until a stabilisation period has elapsed. After that period, a `callback` function will be triggered to take a read and send it:
 
 ```C
 ---snip---
 
+static TimerHandle_t debounce_timer_handle;
+
 void app_main(void) {
     ---snip---
-    xTaskCreate(&interrupt_send_task, "interrupt_send_task", 5120, NULL, 1, &door_interrupt_handle);
+    interrupt_init(&debounce_timer_handle);
+    debounce_timer_handle = xTimerCreate("interrupt_send_callback", pdMS_TO_TICKS(DEBOUNCE_DURATION), pdFALSE, (void *) 0, interrupt_send_callback);
 }
 
-static void door_state_change_task(void *pvParameters) {
-    xTaskNotifyGive(door_interrupt_handle);
+static void door_state_change_callback(void *pvParameters) {
+    TimerHandle_t *debounce_timer_handle = (TimerHandle_t *)pvParameters;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    xTimerStopFromISR(*debounce_timer_handle, &xHigherPriorityTaskWoken);
+    xTimerStartFromISR(*debounce_timer_handle, &xHigherPriorityTaskWoken);
+
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-void interrupt_send_task(void *pvParameters) {
-    while (true) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        // Read and send
-    }
-    vTaskDelete(NULL);
-}
-```
-
-These task notifications have a habit of being far too good at their job though. They operate with resolutions in the microsecond range, so switch bounce causes multiple triggers. There are many possible approaches to debounce, but one is to detach the interrupt handler for a short duration to allow the transient events to pass. In this case, we wait 1 second:
-
-```C
-int debounce_door(gpio_num_t gpio, TaskHandle_t *door_interrupt_handle) {
-    gpio_isr_handler_remove(gpio);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    bool door_status = gpio_get_level(gpio)
-    gpio_isr_handler_add(gpio, door_state_change_task, (void *)door_interrupt_handle);
-    return door_status;
+void interrupt_send_callback(TimerHandle_t xTimer) {
+    // Read and send
 }
 ```
 
-And that gives everything needed for a functioning prototype that meets the brief. Before closing out, keep in mind that this is one of many different approaches to this problem. FreeRTOS provides many other ways to manage tasks, such as using task notifications with basic data attached, using queues, using event groups or using mutexes.
+This is configured by:
+
+ - Linking the `door_state_change_callback` to the relevant pin
+ - Creating a software timer `debounce_timer_handle`. The timer runs for 50ms when triggered and then calls the `interrupt_send_callback`.
+
+ When an interrupt is triggered, `door_state_change_callback` is called. This takes the `debounce_handle` and starts the timer. When the timer expires, the `interrupt_send_callback` finally takes a read of the sensor and publishes the state.
 
 ## Building and flashing
 
@@ -400,4 +396,4 @@ The next subproject will explore two ideas existing at opposite ends of a spectr
 - Writing a basic driver for DHT, and explore how the devices actually communicate with each other
 - Using C++ to see how some concepts of a higher level language can be used in embedded development
 
-Check it out [here](https://github.com/TristanWebber/garage_monitor/blob/main/README.md)
+Check it out [here](https://github.com/TristanWebber/garage_monitor/tree/main/esp_cpp)

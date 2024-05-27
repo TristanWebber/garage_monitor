@@ -1,6 +1,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
-#include "freertos/idf_additions.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
 
 #include "am2302_rmt.h"
 
@@ -48,23 +49,24 @@ esp_err_t sensor_read(am2302_handle_t *sensor, SensorData *sensor_data) {
 }
 
 // Interrupt handler for door switch
-static void door_state_change_task(void *pvParameters) {
-    TaskHandle_t *door_interrupt_handle = (TaskHandle_t *)pvParameters;
-    xTaskNotifyGive(*door_interrupt_handle);
+static void door_state_change_callback(void *pvParameters) {
+    TimerHandle_t *debounce_timer_handle = (TimerHandle_t *)pvParameters;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    xTimerStopFromISR(*debounce_timer_handle, &xHigherPriorityTaskWoken);
+    xTimerStartFromISR(*debounce_timer_handle, &xHigherPriorityTaskWoken);
+
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 // Configure the interrupt handler for the door switch
-void interrupt_init(TaskHandle_t *door_interrupt_handle) {
+void interrupt_init(TimerHandle_t *debounce_timer_handle) {
     gpio_set_intr_type(DOOR_SW_PIN, GPIO_INTR_ANYEDGE);
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
-    ESP_ERROR_CHECK(gpio_isr_handler_add(DOOR_SW_PIN, door_state_change_task, (void *)door_interrupt_handle));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(DOOR_SW_PIN, door_state_change_callback, (void *)debounce_timer_handle));
 }
 
-// Debounce interrupt reads from door switch and return the state after settling period
-bool debounce_door(gpio_num_t gpio, TaskHandle_t *door_interrupt_handle) {
-    gpio_isr_handler_remove(gpio);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    bool door_status = gpio_get_level(gpio);
-    gpio_isr_handler_add(gpio, door_state_change_task, (void *)door_interrupt_handle);
-    return door_status;
+// Reads from door switch and returns the state
+bool get_door_state(gpio_num_t gpio) {
+    return gpio_get_level(gpio);
 }

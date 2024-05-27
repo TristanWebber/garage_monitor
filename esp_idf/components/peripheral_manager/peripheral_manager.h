@@ -19,12 +19,12 @@ typedef struct SensorData
 am2302_handle_t sensor_init(void);
 
 // Configure the interrupt handler for the door switch
-void interrupt_init(TaskHandle_t *door_interrupt_handle);
+void interrupt_init(TimerHandle_t *debounce_timer_handle);
 
 // Record reads from the sensors to the SensorData struct
 esp_err_t sensor_read(am2302_handle_t *sensor, SensorData *sensor_data);
 
-// Debounce interrupt reads from door switch and return the state after settling period
-bool debounce_door(gpio_num_t gpio, TaskHandle_t *door_interrupt_handle);
+// Reads from door switch and returns the state
+bool get_door_state(gpio_num_t gpio);
 
 #endif /* PERIPHERAL_MANAGER_H */

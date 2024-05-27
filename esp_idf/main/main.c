@@ -4,6 +4,7 @@
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 
 #include "am2302_rmt.h"
 
@@ -12,10 +13,10 @@
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
 
-static TaskHandle_t door_interrupt_handle = NULL;
+static TimerHandle_t debounce_timer_handle;
 
 void read_and_send_task(void *pvParameters);
-void interrupt_send_task(void *pvParameters);
+void interrupt_send_callback(TimerHandle_t xTimer);
 
 void app_main(void) {
 
@@ -26,10 +27,10 @@ void app_main(void) {
 
     mqtt_client_init();
 
-    interrupt_init(&door_interrupt_handle);
+    interrupt_init(&debounce_timer_handle);
 
     xTaskCreate(&read_and_send_task, "read_and_send_task", 5 * 1024, (void *)sensor, 1, NULL);
-    xTaskCreate(&interrupt_send_task, "interrupt_send_task", 5 * 1024, NULL, 1, &door_interrupt_handle);
+    debounce_timer_handle = xTimerCreate("interrupt_send_callback", pdMS_TO_TICKS(DEBOUNCE_DURATION), pdFALSE, (void *) 0, interrupt_send_callback);
 }
 
 void read_and_send_task(void *pvParameters) {
@@ -55,14 +56,9 @@ void read_and_send_task(void *pvParameters) {
     vTaskDelete(NULL);
 }
 
-void interrupt_send_task(void *pvParameters) {
-    while (true) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        bool door_status = debounce_door(DOOR_SW_PIN, &door_interrupt_handle);
-
-        char pub_buff[2];
-        sprintf(pub_buff, "%d", door_status);
-        mqtt_publish(DOOR_TOPIC, pub_buff, false);
-    }
-    vTaskDelete(NULL);
+void interrupt_send_callback(TimerHandle_t xTimer) {
+    bool door_status = get_door_state(DOOR_SW_PIN);
+    char pub_buff[2];
+    sprintf(pub_buff, "%d", door_status);
+    mqtt_publish(DOOR_TOPIC, pub_buff, false);
 }
