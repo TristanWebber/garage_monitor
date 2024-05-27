@@ -105,7 +105,55 @@ public:
 
 This gives the very familiar structure from the previous project, with the exception being the use of classes and methods. Observe the `create_tasks()` private method - arguably there would be no issues if this implementation were to simply rely on the C API for FreeRTOS, but there is a multithreading library `esp_pthread.h` that is a C++ wrapper, allowing the use of C++ style without much additional effort.
 
-**TODO - Refactor to <thread> interface**
+Let's explore this by refactoring the `read_and_send_task` to a C++ thread. As a reminder, the way to create a minimal FreeRTOS task was:
+
+```cpp
+#include "freertos/Freertos.h"
+#include "freertos/task.h"
+
+static void read_and_send_task(void *pvParameters) {
+    while (true) {
+        // read and send
+        vTaskDelay(pdMS_TO_TICKS(SEND_INTERVAL));
+    }
+}
+
+void app_main(void) {
+    xTaskCreate(&read_and_send_task, "read_and_send_task", 5 * 1024, NULL, 1, NULL);
+}
+```
+
+This does exactly as we intend, however FreeRTOS is not familiar to all developers. For C++ developers, the it is possible to use the thread API as a wrapper and entirely ignore the implementation details of FreeRTOS. For example, the `read_and_send_task` could be created as follows:
+
+```cpp
+#include <chrono>
+#include <thread>
+
+#include "esp_pthread.h"
+
+[[noreturn]] void Main::read_and_send(void) {
+    while (true) {
+        // read and send
+        std::this_thread::sleep_for(std::chrono::seconds {Config::SEND_INTERVAL});
+    }
+}
+
+void app_main (void) {
+    // Set configuration for thread
+    auto cfg = esp_pthread_get_default_config();
+    esp_pthread_set_cfg(&cfg);
+
+    // Create a thread to execute the static `read_and_send` method
+    std::thread read_and_send_thread(&Main::read_and_send);
+
+    // Wait for the thread to terminate
+    read_and_send_thread.join();
+}
+```
+
+Hiding the implementation details of FreeRTOS for a simple task allows for standard C++ to be used, with the exception of setting the config. The default config is a struct, so it can be updated if custom values are required by the application. Also note that the FreeRTOS `vTaskDelay` and `xTaskDelayUntil` can be replaced with the methods `std::this_thread::sleep_for` and `std::this_thread::sleep_until`. We use `[[noreturn]]` to flag to the compiler that we expect the task to be an infinite loop and the `join` method ensures that the program does not leave `app_main` unless the thread finishes executing.
+
+For this project, the `interrupt_send_callback` has been left as a FreeRTOS / C implementation however with a bit more commitment there is no reason this can't also be refactored to threads. Consider it a TODO for now, but this would be an ideal place to use a `condition_variable` with a mutex to block the sending thread until a button press is detected and a settling time has elapsed.
 
 ## The other files
 
@@ -451,7 +499,9 @@ if (temperature_neg) {
 }
 ```
 
-It's great to know that this is how the types work under the hood, however the implicit cast is neater and arguably less error prone in implementation. And now our blocking driver works. Nice! We made it work, but in doing so, other tasks were delayed for several milliseconds even though most of the time spent in this driver is sitting in the blocking delays.
+It's great to know that this is how the types work under the hood, however the implicit cast is neater and arguably less error prone in implementation. Finally, our approach of counting every us in `expect_pulse` is perhaps unneccessary. Our logic only needs to detect if a pulse is ~26us or ~70us. So we try using 15us. And now our blocking driver works.
+
+Nice! We made it work, but in doing so, other tasks were delayed for several milliseconds even though most of the time spent in this driver is sitting in the blocking delays.
 
 ### Timer callback driver
 
@@ -493,9 +543,7 @@ static void us_delay(uint64_t us) {
 }
 ```
 
-This basic structure gets some window-dressing to give the timer a little more context about its environment. As has been the case throughout this exercise, there are some challenges related to timing to be aware of. Starting the timer and executing the callback takes some time, so this information should also be passed to the timer to correct for the known time required for processing. For my ESPC3, this was approximately 10us.
-
-Finally, this signals to us that our previous approach of counting every us in `expect_pulse` is perhaps unneccessary. Firstly, the new approach takes too long to permit this. Secondly, our logic only needs to detect if a pulse is ~26us or ~70us. So we try using 20us. Now our driver has achieved a compromise where it has the required performance and timing, and no longer blocks other tasks from executing.
+This basic structure gets some window-dressing to give the timer a little more context about its environment. As has been the case throughout this exercise, there are some challenges related to timing to be aware of. Starting the timer and executing the callback takes some time, so this information should also be passed to the timer to correct for the known time required for processing. For my ESPC3, this was approximately 10us when the task was run in isolation but up to 200us when the WiFi and MQTT event loops were running. This signals that this approach is not practical for a single-core ESP. However, for a dual core, it's far easier for us to escape the goings on of the radio transceiver.
 
 ### Remote Control Transceiver driver
 
@@ -509,7 +557,7 @@ Commands to build, flash and monitor the project are as per the previous project
 
 ## Observations and Next Steps
 
-This implementation has shown that C++ is easily used with ESP-IDF. This can deliver benefits in the form of higher level features and data structures and allows for better control of interfaces, particularly where a project may use multiple instances of a sensor. The exercise of creating a driver for the DHT22 sensor allowed for a practical investigation into how to communicate with a digital device. It also gave a deep dive in to the realities of how FreeRTOS interacts with tasks.
+This implementation has shown that some facets of C++ are easily used with ESP-IDF. This can deliver benefits in the form of higher level features and data structures and allows for better control of interfaces, particularly where a project may use multiple instances of a sensor. The exercise of creating a driver for the DHT22 sensor allowed for a practical investigation into how to communicate with a digital device. It also gave a deep dive in to the realities of how FreeRTOS interacts with tasks.
 
 The next subproject will explore using Rust with the ESP32, via the Standard Library.
 

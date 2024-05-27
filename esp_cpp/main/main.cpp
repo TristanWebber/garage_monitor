@@ -1,4 +1,8 @@
+#include <chrono>
+#include <thread>
+
 #include "esp_err.h"
+#include "esp_pthread.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -10,7 +14,6 @@
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
 
-static void read_and_send_task(void *pvParameters);
 static void interrupt_send_callback(TimerHandle_t xTimer);
 
 static Main cpp_main;
@@ -36,14 +39,19 @@ void Main::start(void) {
     create_tasks();
 }
 
-void::Main::create_tasks(void) {
-    xTaskCreate(&read_and_send_task, "read_and_send_task", 5 * 1024, NULL, 1, NULL);
+void Main::create_tasks(void) {
+
+    esp_pthread_cfg_t read_and_send_config = esp_pthread_get_default_config();
+    read_and_send_config.thread_name = "read_and_send_thread";
+    ESP_ERROR_CHECK(esp_pthread_set_cfg(&read_and_send_config));
+
+    std::thread read_and_send_thread(&Main::read_and_send);
+    read_and_send_thread.join();
+
     debounce_timer_handle = xTimerCreate("interrupt_send_callback", pdMS_TO_TICKS(Config::DEBOUNCE_DURATION_MILLIS), pdFALSE, (void *)0, interrupt_send_callback);
 }
 
-void read_and_send_task(void *pvParameters) {
-
-    TickType_t task_start = xTaskGetTickCount();
+[[noreturn]] void Main::read_and_send(void) {
 
     while (true) {
         Sensors::SensorData sensor_data;
@@ -61,9 +69,8 @@ void read_and_send_task(void *pvParameters) {
         sprintf(pub_buff, "%.2f", sensor_data.humidity);
         mqtt_client.publish(Config::HUMI_TOPIC, pub_buff, false);
 
-        xTaskDelayUntil(&task_start, Config::PUBLISH_INTERVAL_SECONDS * 1000 / portTICK_PERIOD_MS);
+        std::this_thread::sleep_for(std::chrono::seconds {Config::PUBLISH_INTERVAL_SECONDS});
     }
-    vTaskDelete(NULL);
 }
 
 void interrupt_send_callback(TimerHandle_t xTimer) {
