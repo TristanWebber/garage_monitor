@@ -153,7 +153,51 @@ void app_main (void) {
 
 Hiding the implementation details of FreeRTOS for a simple task allows for standard C++ to be used, with the exception of setting the config. The default config is a struct, so it can be updated if custom values are required by the application. Also note that the FreeRTOS `vTaskDelay` and `xTaskDelayUntil` can be replaced with the methods `std::this_thread::sleep_for` and `std::this_thread::sleep_until`. We use `[[noreturn]]` to flag to the compiler that we expect the task to be an infinite loop and the `join` method ensures that the program does not leave `app_main` unless the thread finishes executing.
 
-For this project, the `interrupt_send_callback` has been left as a FreeRTOS / C implementation however with a bit more commitment there is no reason this can't also be refactored to threads. Consider it a TODO for now, but this would be an ideal place to use a `condition_variable` with a mutex to block the sending thread until a button press is detected and a settling time has elapsed.
+Unfortunately this is not so straightforward for the interrupt task, because the current implementation of the c++ mutex cannot be called from a ISR function and results in the application instantly aborting. However, keeping in context that we don't actually need the interrupt to occur with millisecond precision, we can just create a crude thread to frequently check if the door state has changed:
+
+```cpp
+#include <chrono>
+#include <condition_variable>
+#include <thread>
+
+std::mutex interrupt_mux;
+std::condition_variable interrupt_cv;
+bool interrupt_ready = false;
+bool door_state;
+
+[[noreturn]] void Main::interrupt_send(void) {
+    while (true) {
+        std::unique_lock<std::mutex> lock(interrupt_mux);
+        while (!interrupt_ready) {
+            interrupt_cv.wait(lock);
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        // read state and send
+
+        interrupt_ready = false;
+    }
+}
+
+[[noreturn]] void Main::interrupt_listen(void) {
+    door_state = sensors.get_door_state();
+    while (true) {
+        bool read_state = sensors.get_door_state();
+        if (read_state != door_state) {
+            {
+                std::lock_guard<std::mutex> lock(interrupt_mux);
+                interrupt_ready = true;
+                door_state = read_state;
+            }
+            interrupt_cv.notify_one();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+```
+
+Starting these two tasks allows one to listen for events, and the other to respond to the events. Using the mutex and the condition variable provides similar behaviour to the FreeRTOS task notifications. Of course, this could all be rewritten to a single task with far fewer lines of code, but this approach gives an opportunity to play around with some other concepts.
 
 ## The other files
 

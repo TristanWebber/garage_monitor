@@ -2,7 +2,6 @@
 #define PERIPHERAL_MANAGER_H
 
 #include "esp_err.h"
-#include "freertos/idf_additions.h"
 #include "soc/gpio_num.h"
 
 #include "dht22.h"
@@ -20,7 +19,7 @@ public:
     Sensors(gpio_num_t door_sw_pin, gpio_num_t dht_pin);
     ~Sensors(void);
 
-    esp_err_t init(TimerHandle_t *debounce_timer_handle);
+    esp_err_t init(void);
     esp_err_t read(SensorData *sensor_data);
     bool get_door_state(void);
 
