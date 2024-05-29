@@ -1,8 +1,13 @@
+#include "peripheral_manager.h"
+
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
 
-#include "peripheral_manager.h"
 #include "dht22.h"
 
 const static char *TAG = "PERIPHERAL_MANAGER";
@@ -30,6 +35,10 @@ esp_err_t Sensors::init(void) {
     return ESP_OK;
 }
 
+Sensors::interrupt_handle_t Sensors::get_interrupt_handle(void) {
+    return &Sensors::interrupt;
+}
+
 esp_err_t Sensors::read(SensorData *sensor_data) {
 
     sensor_data->door_status = gpio_get_level(_door_sw_pin);
@@ -51,4 +60,18 @@ esp_err_t Sensors::read(SensorData *sensor_data) {
 // Reads from door switch and returns the state
 bool Sensors::get_door_state(void) {
     return gpio_get_level(_door_sw_pin);
+}
+
+[[noreturn]] void Sensors::interrupt(std::atomic_flag& atomic_flag) {
+    bool last_state = get_door_state();
+    while (true) {
+        bool current_state = get_door_state();
+        atomic_flag.wait(true);
+        if (current_state != last_state) {
+            last_state = current_state;
+            atomic_flag.test_and_set();
+            atomic_flag.notify_one();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 }

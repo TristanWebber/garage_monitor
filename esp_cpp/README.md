@@ -153,51 +153,65 @@ void app_main (void) {
 
 Hiding the implementation details of FreeRTOS for a simple task allows for standard C++ to be used, with the exception of setting the config. The default config is a struct, so it can be updated if custom values are required by the application. Also note that the FreeRTOS `vTaskDelay` and `xTaskDelayUntil` can be replaced with the methods `std::this_thread::sleep_for` and `std::this_thread::sleep_until`. We use `[[noreturn]]` to flag to the compiler that we expect the task to be an infinite loop and the `join` method ensures that the program does not leave `app_main` unless the thread finishes executing.
 
-Unfortunately this is not so straightforward for the interrupt task, because the current implementation of the c++ mutex cannot be called from a ISR function and results in the application instantly aborting. However, keeping in context that we don't actually need the interrupt to occur with millisecond precision, we can just create a crude thread to frequently check if the door state has changed:
+Unfortunately this is not so straightforward for the interrupt task, because the current implementation of the c++ mutex cannot be called from a ISR function and results in the application instantly aborting. However, keeping in context that we don't actually need the interrupt to occur with millisecond precision, we can just create a crude thread to frequently check if the door state has changed. We place this in the peripheral manager to keep all the direct interactions with peripherals in one place, and hide some of the implementation details:
 
+#### **`peripheral_manager.cpp`**
 ```cpp
-#include <chrono>
-#include <condition_variable>
-#include <thread>
-
-std::mutex interrupt_mux;
-std::condition_variable interrupt_cv;
-bool interrupt_ready = false;
-bool door_state;
-
-[[noreturn]] void Main::interrupt_send(void) {
-    while (true) {
-        std::unique_lock<std::mutex> lock(interrupt_mux);
-        while (!interrupt_ready) {
-            interrupt_cv.wait(lock);
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-        // read state and send
-
-        interrupt_ready = false;
-    }
+Sensors::interrupt_handle_t Sensors::get_interrupt_handle(void) {
+    return &Sensors::interrupt;
 }
 
-[[noreturn]] void Main::interrupt_listen(void) {
-    door_state = sensors.get_door_state();
+[[noreturn]] void Sensors::interrupt(std::atomic_flag& atomic_flag) {
+    bool last_state = get_door_state();
     while (true) {
-        bool read_state = sensors.get_door_state();
-        if (read_state != door_state) {
-            {
-                std::lock_guard<std::mutex> lock(interrupt_mux);
-                interrupt_ready = true;
-                door_state = read_state;
-            }
-            interrupt_cv.notify_one();
+        bool current_state = get_door_state();
+        atomic_flag.wait(true);
+        if (current_state != last_state) {
+            last_state = current_state;
+            atomic_flag.test_and_set();
+            atomic_flag.notify_one();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
 ```
+And start the threads in main:
 
-Starting these two tasks allows one to listen for events, and the other to respond to the events. Using the mutex and the condition variable provides similar behaviour to the FreeRTOS task notifications. Of course, this could all be rewritten to a single task with far fewer lines of code, but this approach gives an opportunity to play around with some other concepts.
+#### **`main.cpp`**
+```cpp
+#include <chrono>
+#include <thread>
+
+std::atomic_flag atomic_flag {};
+Sensors sensors(Config::DOOR_SW_PIN, Config::DHT_PIN);
+
+void Main::create_tasks(void) {
+
+    Sensors::interrupt_handle_t interrupt_handle = sensors.get_interrupt_handle();
+
+    std::thread interrupt_listen_thread(interrupt_handle, &sensors, std::ref(atomic_flag));
+    std::thread interrupt_send_thread(&Main::interrupt_send);
+
+    interrupt_listen_thread.join();
+    interrupt_send_thread.join();
+}
+
+[[noreturn]] void Main::interrupt_send(void) {
+    while (true) {
+        atomic_flag.wait(false);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(Config::DEBOUNCE_DURATION_MILLIS));
+        bool door_status = sensors.get_door_state();
+
+        // read and send
+
+        atomic_flag.clear();
+        atomic_flag.notify_one();
+    }
+}
+```
+
+Starting these two tasks allows one to listen for events, and the other to respond to the events. Using the atomic_flag provides similar behaviour to the FreeRTOS task notifications. This has allowed for direct interaction with FreeRTOS to be entirely eliminated from the main and peripheral manager files - instead replaced by C++ standard concurrency features.
 
 ## The other files
 
@@ -219,10 +233,13 @@ public:
         float humidity;
     } SensorData;
 
+    typedef void (Sensors::*interrupt_handle_t)(std::atomic_flag&);
+
     Sensors(gpio_num_t door_sw_pin, gpio_num_t dht_pin);
     ~Sensors(void);
 
     esp_err_t init(TimerHandle_t *debounce_timer_handle);
+    interrupt_handle_t get_interrupt_handle(void);
     esp_err_t read(SensorData *sensor_data);
     bool get_door_state(void);
 
@@ -231,6 +248,8 @@ private:
     gpio_num_t _dht_pin;
     SensorData _sensor_data;
     DHT22 *_dht22;
+
+    [[noreturn]] void interrupt(std::atomic_flag& atomic_flag);
 };
 ```
 

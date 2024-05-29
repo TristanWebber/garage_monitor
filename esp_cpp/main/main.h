@@ -5,7 +5,6 @@ class Main final {
 private:
     void create_tasks(void);
     [[noreturn]] static void read_and_send(void);
-    [[noreturn]] static void interrupt_listen(void);
     [[noreturn]] static void interrupt_send(void);
 public:
     void start(void);

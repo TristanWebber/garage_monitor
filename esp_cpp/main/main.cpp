@@ -1,5 +1,4 @@
 #include <chrono>
-#include <condition_variable>
 #include <thread>
 
 #include "esp_err.h"
@@ -16,10 +15,7 @@ Sensors sensors(Config::DOOR_SW_PIN, Config::DHT_PIN);
 Wifi wifi;
 Mqtt mqtt_client;
 
-std::mutex interrupt_mux;
-std::condition_variable interrupt_cv;
-bool interrupt_ready = false;
-bool door_state;
+std::atomic_flag atomic_flag {};
 
 void Main::start(void) {
 
@@ -39,8 +35,10 @@ void Main::start(void) {
 
 void Main::create_tasks(void) {
 
+    Sensors::interrupt_handle_t interrupt_handle = sensors.get_interrupt_handle();
+
     std::thread read_and_send_thread(&Main::read_and_send);
-    std::thread interrupt_listen_thread(&Main::interrupt_listen);
+    std::thread interrupt_listen_thread(interrupt_handle, &sensors, std::ref(atomic_flag));
     std::thread interrupt_send_thread(&Main::interrupt_send);
 
     read_and_send_thread.join();
@@ -77,12 +75,9 @@ void Main::create_tasks(void) {
 
 [[noreturn]] void Main::interrupt_send(void) {
     while (true) {
-        std::unique_lock<std::mutex> lock(interrupt_mux);
-        while (!interrupt_ready) {
-            interrupt_cv.wait(lock);
-        }
+        atomic_flag.wait(false);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(Config::DEBOUNCE_DURATION_MILLIS));
         bool door_status = sensors.get_door_state();
 
         while (mqtt_client.get_state() != Mqtt::state_e::CONNECTED) {
@@ -93,23 +88,8 @@ void Main::create_tasks(void) {
         sprintf(pub_buff, "%d", door_status);
         mqtt_client.publish(Config::DOOR_TOPIC, pub_buff, false);
 
-        interrupt_ready = false;
-    }
-}
-
-[[noreturn]] void Main::interrupt_listen(void) {
-    door_state = sensors.get_door_state();
-    while (true) {
-        bool read_state = sensors.get_door_state();
-        if (read_state != door_state) {
-            {
-                std::lock_guard<std::mutex> lock(interrupt_mux);
-                interrupt_ready = true;
-                door_state = read_state;
-            }
-            interrupt_cv.notify_one();
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        atomic_flag.clear();
+        atomic_flag.notify_one();
     }
 }
 
