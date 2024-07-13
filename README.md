@@ -1,10 +1,5 @@
 # Garage Monitor
-
-- [Introduction](#introduction)
-- [The Journey](#the-journey)
-- [Solutions](#solutions)
-- [Hardware](#hardware)
-- [Dashboard](#dashboard)
+![image](https://github.com/user-attachments/assets/e63ac389-65a6-4c24-9515-e5f5d7e31f60)
 
 ## Introduction
 
@@ -21,9 +16,9 @@ This project is as simple or as complex as you care to make it. It is very easy 
 This project touches on many common features of embedded firmware design including:
 
 - Inputs / Outputs
-- Managing multiple tasks
+- Tasks
 - Telemetry
-- Power management and Interrupts
+- Interrupts
 
 At the early implementations, some of these aspects will be dealt with in single-liners or not at all. The later projects will aim to pick one or more of these features as a theme of exploration.
 
@@ -40,24 +35,22 @@ The basic details of the solution will be common to all subprojects. The project
 
 For all of the proposed solutions, the following will be used:
 
-TODO links
-- Seeed XIAO ESP32C3 development board
+- [Seeed XIAO ESP32C3](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html) development board
 - Reed switch (normally open) and magnet to detect door status
-- DHT22 Temperature and Humidity sensor
-- Raspberry Pi power supply
+- [DHT22](https://core-electronics.com.au/dht22-module-temperature-and-humidity.html) Temperature and Humidity sensor
+- Power supply (5V USB-C)
 - 3D printed case
 
-TODO assembly guide
+Wiring and assembly of these components is relatively straightforward
 
 ## Dashboard
 
 To subscribe to and visualise our data, the project will use existing low code cloud products. For all of the proposed solutions, I have set up a very basic dashboard as follows:
 
-TODO: Add links and screenshots
+![image](https://github.com/user-attachments/assets/e63ac389-65a6-4c24-9515-e5f5d7e31f60)
 
 ## Jump In
 
-TODO links
 The subprojects are as follows, presented in roughly increasing order of implementation complexity:
 1. [Using Arduino framework](https://github.com/TristanWebber/garage_monitor/tree/main/arduino)
 2. [Using ESP-IDF](https://github.com/TristanWebber/garage_monitor/tree/main/esp_idf)
@@ -65,19 +58,3 @@ The subprojects are as follows, presented in roughly increasing order of impleme
 4. Using Rust and the `std` crate
 5. Using Rust and the `no-std` crate
 6. Using baremetal C to implement just the I/O features
-
-
-## Misc - topics to explore in subprojects. To remove
-
-- Wake up due to powerup, interrupt or timer
-- Take a digital read from the reed switch pins
-- Setup an interface to the DHT sensor
-- Take reads from the DHT sensor
-- Interpret the reads from the DHT sensor
-- Connect to WiFi
-- Connect to NTP server
-- Connect to MQTT broker
-- Publish reads
-- Calculate next wake time
-- Set sleep so that the device wakes for an interrupt from the door switch or a period of time passes
-- Go in to low power mode
