@@ -13,17 +13,17 @@
 
 ## Introduction
 
-This first example of the garage monitor leverages relatively high level abstractions and libraries. This way it's possible to use very little code to achieve the desired functionality. It intentionally avoids lower level details where possible so we make a number of comprimises which will be discussed in [Observations](#observations-and-next-steps).
+This first example of the garage monitor leverages relatively high level abstractions and libraries. Using this approach, it's possible to use very little code to achieve the desired functionality. It intentionally avoids lower level details where possible so we make a number of comprimises which will be discussed in [Observations](#observations-and-next-steps).
 
-A quick refresher on Arduino abstraction - Every Arduino project will call `setup()` and `loop()` functions. For the purposes of this first project, how they are called and what they actually are will be ignored. We'll just pretend it is some magic we can rely on and that allows us to rapidly build a basic project.
+This iteration uses Arduino - a framework designed for educational purposes that has foud itself broadly used in prototyping and hobbyist domains. A quick refresher on Arduino - Every Arduino project will call `setup()` and `loop()` functions. For the purposes of this first project, how they are called and what they actually are will be ignored. We'll just pretend it is some magic we can rely on and that allows us to rapidly build a basic project.
 
-Our strategy for this project is to rely on those two Arduino entry points, use libraries written in Arduino style for our peripherals, and run everything sequentially, thus not worrying too much about how to handle some event that may occur while tasks are 'blocking'. It is a path of least resistance for implementation and results in relinquishing control over 'how' things happen, but that isn't a bad thing, particularly if the focus is simply on testing out an idea and making something work without needing to spend days reading documentation.
+Our strategy for this project is to rely on those two Arduino functions to run our code, use libraries written in Arduino style for our peripherals, and run everything sequentially, thus not worrying too much about how to handle some event that may occur while tasks are 'blocking'. It is a path of least resistance for implementation and results in relinquishing control over 'how' things happen, but that isn't necessarily a bad thing, particularly if the focus is simply on testing out an idea and making something work without needing to spend days reading documentation on how to do things via 'bare metal'.
 
-The project has been developed using PlatformIO for build tools. This makes downloading libraries and managing dependencies for independent projects straightforward. For anyone following along, initial setup of PlatformIO takes more effort than Arduino IDE but for anything other than tiny projects I have by far preferred PlatformIO. There's no reason the project wouldn't compile in Arduino IDE but this walkalong is written from the context of PlatformIO.
+The project has been developed using PlatformIO for build tools. This makes downloading libraries and managing dependencies for independent projects straightforward. For anyone following along, initial setup of PlatformIO takes more effort than Arduino IDE but for anything other than tiny projects I have by far preferred PlatformIO for managing Arduino projects. There's no reason the project wouldn't compile in Arduino IDE but this walkalong is written from the context of PlatformIO.
 
 ## Quickstart
 
-This series of projects is presented as an educational piece, however if you simply want to take some or all of the repository and use it for your own projects without suffering through the narrative you can:
+This series of projects is presented as an demonstration and discussion piece, however if you simply want to take some or all of the repository and use it for your own projects without suffering through the narrative you can:
 
 0. [Acquire and assemble](https://github.com/TristanWebber/garage_monitor/blob/main/README.md#hardware) the appropriate hardware
 1. Setup a [dashboard](https://github.com/TristanWebber/garage_monitor/blob/main/README.md#dashboard)
@@ -65,7 +65,7 @@ You'll now have an empty PlatformIO project and the necessary toolchain. If this
 
 ## The main file
 
-Reiterating that the primary purpose of this subproject is to use an Arduino framework to hide a lot of the implementation detail, the `main.cpp` file will be kept minimal and should clearly describe what we want the code to do. Recall that the `setup()` and `loop()` functions are the entry point for a project using the Arduino framework. In the setup, it is logical to place the functions we only need to call once, and in the loop it is logical to group the things we want to occur repeatedly.
+Reiterating that the primary purpose of this subproject is to use an Arduino framework to hide a lot of the implementation detail, the `main.cpp` file will be kept minimal and should clearly describe what we want the code to do. Recall that the `setup()` and `loop()` functions are the entry points for a project using the Arduino framework. In the setup, it is logical to place the functions we only need to call once, and in the loop it is logical to group the things we want to occur repeatedly.
 
 In pseudocode, the `main` file will do something like this:
 
@@ -113,7 +113,7 @@ void loop() {
 }
 ```
 
-It's wise to wrap the `connection_handler()` in a similar block but otherwise we're done here.
+It's wise to wrap the `connection_handler()` in a similar block but otherwise, we're done here.
 
 The final thought for the loop function is to address how it will behave if it is running for a very long time. The `millis()` function is a 32-bit unsigned integer and that means that it will reach a maximum value in about 49 days. After that, the predictable behaviour will be to wraparound to zero and restart counting from there. Similarly, the predictable behaviour of the microcontroller when it is asked to evaluate a subtraction of two unsigned integers that would result in a negative result, will be to wraparound. Using 8-bit unsigned integers and some arbitrary values makes the behaviour far easier to show. The maximum value for an 8-bit unsigned integer is 255, and 255 + 1 = 0. So working through two examples:
 
@@ -137,7 +137,7 @@ millis() - last_send = 44 - 150 = 0 - 1 - 105 = 255 - 105 = 150
 Therefore the condition evaluates to true as expected. More than 100ms has elapsed since the last send.
 ```
 
-This is behaviour is well defined in C and in some contexts, it could bite us. But in this case, wraparound is serving us perfectly well.
+This is integer overflow is considered as defined behaviour in C. In some contexts, this causes problems, but here, the integer overflow serves our purposes just fine.
 
 In the subsequent sections, the actual functions definitions can be explored.
 
