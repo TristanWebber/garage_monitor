@@ -103,7 +103,7 @@ public:
 #endif /* MAIN_H */
 ```
 
-This gives the very familiar structure from the previous project, with the exception being the use of classes and methods. Observe the `create_tasks()` private method - arguably there would be no issues if this implementation were to simply rely on the C API for FreeRTOS, but there is a multithreading library `esp_pthread.h` that is a C++ wrapper, allowing the use of C++ style without much additional effort.
+This gives the very familiar structure from the previous project, with the exception being the use of classes and methods. Observe the `create_tasks()` private method - arguably there would be no issues if this implementation were to simply rely on the C API for FreeRTOS, but there is a multithreading library `esp_pthread.h` that is a C++ wrapper of FreeRTOS. Using this wrapper allows the use of C++ style to access FreeRTOS functionality.
 
 Let's explore this by refactoring the `read_and_send_task` to a C++ thread. As a reminder, the way to create a minimal FreeRTOS task was:
 
