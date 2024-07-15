@@ -102,7 +102,7 @@ idf_component_register(SRCS "project_name.c"
 
 The build system uses this information to compile the `project_name.c` file in this directory, so it follows if we rename `project_name.c` to `main.c`, the CMakeLists.txt file will also need to be updated accordingly. This is something to keep in mind for every file and directory created in the project.
 
-Now that we can be confident the compiler will find our main file, let's get in to writing what our program flow in pseudocode:
+Now that we can be confident the compiler will find our main file, let's get in to writing how our program will flow in pseudocode:
 
 ```C
 void app_main(void) {
