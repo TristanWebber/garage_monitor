@@ -517,7 +517,9 @@ This is the first time in this project we're exposed to genuine low level operat
 
 - the 0th bit becomes the 7th bit of the 0th byte
 - the 1th bit becomes the 6th bit of the 0th byte
+
 ...
+
 - the 38th bit becomes the 1th bit of the 4th byte
 - the 39th bit becomes the 0th bit of the 4th byte
 
