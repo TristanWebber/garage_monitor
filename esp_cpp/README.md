@@ -613,7 +613,7 @@ This basic structure gets some window-dressing to give the timer a little more c
 
 A final note on the driver design. This process has been an educational adventure into building a driver from first principles using the documentation, and demonstrating the hard way that there are other factors to be aware of. The idiomatic approach to a driver like this using ESP-IDF is to use the Remote Control Transceiver (RMT) API.
 
-The DHT communications protocol is basically identical to the NEC IR protocol, so whilst we are not dealing with reading and transmitting to a infra-red LED, the ay the bits are encoded is the same. The external component we used in the C ESP-IDF version of this project is based on the RMT API. So the lesson here is that reinventing the wheel is educational, but chances are you will end up with a lesser wheel...
+The DHT communications protocol is basically identical to the NEC IR protocol, so whilst we are not dealing with reading and transmitting to a infra-red LED, the way the bits are encoded is the same. The external component we used in the C ESP-IDF version of this project is based on the RMT API. So the lesson here is that reinventing the wheel is educational, but chances are you will end up with a lesser wheel...
 
 ## Building and flashing
 
