@@ -123,7 +123,7 @@ void app_main(void) {
 }
 ```
 
-This does exactly as we intend, however FreeRTOS is not familiar to all developers. For C++ developers, the it is possible to use the thread API as a wrapper and entirely ignore the implementation details of FreeRTOS. For example, the `read_and_send_task` could be created as follows:
+This does exactly as we intend, however FreeRTOS is not familiar to all developers. For developers familiar with C++, but unfamiliar with FreeRTOS, it is possible to use the `std::thread` class and entirely ignore the semantics of FreeRTOS. For example, the `read_and_send_task` could be created as follows:
 
 ```cpp
 #include <chrono>
