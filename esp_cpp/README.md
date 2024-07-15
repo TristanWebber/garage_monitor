@@ -553,7 +553,7 @@ int16_t i_temp = (_dht_bytes[2] << 8) | _dht_bytes[3];
 float f_temp = temp / 10.0;
 ```
 
-But since we're already in a bit bashing mood let's look at managing the signedness explicitly. The datasheet tells us the 7th bit of the 2th byte for temperature is the sign bit. So using a bitmask `0x7F` (i.e. `0111 1111` in binary) and bitwise `&` lets us initially ignore the sign bit when left shifting this first byte to the most significant byte of the 16 bit result. Similarly, a bitmask of `0x80` (i.e. `1000 0000` in binary), or the inbuild macro `BIT(7)` allows us to check _only_ the sign bit. It would look like this:
+But since we're already in a bit bashing mood let's look at managing the signedness explicitly. The datasheet tells us the 7th bit of the 2th byte for temperature is the sign bit. So using a bitmask `0x7F` (i.e. `0111 1111` in binary) and bitwise `&` lets us initially ignore the sign bit when left shifting this first byte to the most significant byte of the 16 bit result. Similarly, a bitmask of `0x80` (i.e. `1000 0000` in binary), or the inbuilt macro `BIT(7)` allows us to check _only_ the sign bit. It would look like this:
 
 ```cpp
 int16_t int_temperature = (0x7F & _dht_bytes[2] << 8) + _dht_bytes[3];
