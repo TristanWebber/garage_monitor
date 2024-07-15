@@ -5,13 +5,13 @@
 
 Have you ever felt like you left home without shutting the door, leaving your prized possessions visible to all passers-by? Have you ever doubled back home only to find the door was shut after all, so checking was just a waste of time?
 
-This project seeks to solve this by using a microcontroller to detect the garage door status and transmitting it to a cloud service, allowing for the status to be checked on your phone.
+This project seeks to solve this by using a microcontroller to detect the garage door status and transmit it to a cloud service, allowing for the status to be checked remotely on your phone.
 
-For a modern microcontroller, that is an easy life. Similarly, for the author, who routinely writes firmware for a day job, it's not a major challenge. To ensure neither the microcontroller or the engineer get too bored the project will add some other features, and demonstrate a number of different solutions to the problem.
+For a modern microcontroller, this is a simple use case. Similarly, for the author, who routinely writes firmware for a day job, it's not a major challenge. To ensure neither the microcontroller or the engineer get too bored the project will add some other features, and demonstrate a number of different solutions to the problem.
 
 ## The Journey
 
-This project is as simple or as complex as you care to make it. It is very easy to articulate what needs to be done by the microcontroller at a high level, so the problem presents a good opportunity to walk through a range of solutions and focus on the nuance of the implementation, rather than thrashing around with a particularly hard problem. My goal is to create the project multiple times, and in each subproject I will explore a different concept. In rough terms, I will start the journey at a relatively high level and perform all tasks with abstraction, then I will gradually descend closer to the hardware and investigate pros and cons of having a low level of control.
+This project is as simple or as complex as you care to make it. It is very easy to articulate what needs to be done by the microcontroller at a high level, so the problem presents a good opportunity to walk through a range of solutions and focus on the nuance of the implementation, rather than thrashing around with a particularly hard problem. My goal is to create the project multiple times, and in each subproject I will explore a different concept. In rough terms, I will start the journey at a high level and perform all tasks with abstractions provided by Arduino libraries, then I will gradually descend closer to the hardware and investigate pros and cons of having low-level control.
 
 This project touches on many common features of embedded firmware design including:
 
@@ -20,7 +20,7 @@ This project touches on many common features of embedded firmware design includi
 - Telemetry
 - Interrupts
 
-At the early implementations, some of these aspects will be dealt with in single-liners or not at all. The later projects will aim to pick one or more of these features as a theme of exploration.
+In the early implementations, some of these aspects will be dealt with in single-liners or not at all. The later projects will aim to pick one or more of these features as a theme of exploration.
 
 ## Solutions
 
@@ -45,7 +45,7 @@ Wiring and assembly of these components is relatively straightforward
 
 ## Dashboard
 
-To subscribe to and visualise our data, the project will use existing low code cloud products. For all of the proposed solutions, I have set up a very basic dashboard as follows:
+To subscribe to and visualise our data, the project will use [Datacake](https://datacake.co/) - a low-code IoT platform. For all of the proposed solutions, I send the data to the Datacake MQTT Broker, and I have set up a very basic dashboard:
 
 ![image](https://github.com/user-attachments/assets/e63ac389-65a6-4c24-9515-e5f5d7e31f60)
 
@@ -55,6 +55,6 @@ The subprojects are as follows, presented in roughly increasing order of impleme
 1. [Using Arduino framework](https://github.com/TristanWebber/garage_monitor/tree/main/arduino)
 2. [Using ESP-IDF](https://github.com/TristanWebber/garage_monitor/tree/main/esp_idf)
 3. [Using ESP-IDF and C++](https://github.com/TristanWebber/garage_monitor/tree/main/esp_cpp)
-4. Using Rust and the `std` crate
-5. Using Rust and the `no-std` crate
-6. Using baremetal C to implement just the I/O features
+4. Using Rust and the `std` crate - COMING SOON
+5. Using Rust and the `no-std` crate - COMING SOON
+6. Using baremetal C to implement just the I/O features - COMING SOON
