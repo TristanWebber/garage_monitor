@@ -607,7 +607,7 @@ static void us_delay(uint64_t us) {
 }
 ```
 
-This basic structure gets some window-dressing to give the timer a little more context about its environment. As has been the case throughout this exercise, there are some challenges related to timing to be aware of. Starting the timer and executing the callback takes some time, so this information should also be passed to the timer to correct for the known time required for processing. For my ESPC3, this was approximately 10us when the task was run in isolation but up to 200us when the WiFi and MQTT event loops were running. This signals that this approach is not practical for a single-core ESP. However, for a dual core, it's far easier for us to escape the goings on of the radio transceiver.
+This basic structure gets some window-dressing to give the timer a little more context about its environment. As has been the case throughout this exercise, there are some challenges related to timing to be aware of. Starting the timer and executing the callback takes some time, so this information should also be passed to the timer to correct for the known time required for processing. For my ESPC3, this was approximately 10us when the task was run in isolation but up to 200us when the WiFi and MQTT event loops were running. This signals that this approach is not practical for a single-core ESP if the application is also using the WiFi event loop. However, for a dual core, it's far easier for us to escape the goings on of the radio transceiver.
 
 ### Remote Control Transceiver driver
 
