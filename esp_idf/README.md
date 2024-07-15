@@ -89,7 +89,7 @@ By changing these two settings, we are telling the toolchain that we want the se
 
 ## The main file
 
-Using the same philosophy as the previous project, the main file will be designed as a simple entry point for the program. It will only call the relevant functions which we will develop in separate files, and it will manage the timing of tasks.
+Using the same philosophy as the previous project, the main file will be designed as a simple entry point for the program. It will only call the relevant functions, which we will develop in separate files, and it will manage the timing of tasks.
 
 The entry point for our code in an IDF project is the `void app_main(void)` function. We can conceive this as analogous to the `void setup()` function we were using in the Arduino implementation. By default in a new ESP-IDF project, this will be contained in the main folder in a file called `project_name.c`, where `project_name` is whatever you passed as an argument to the `idf.py create-project ...` command. My typical preference is for the entry point to be contained in a file called `main.c` so it is easy for anyone to infer where the code will start executing. Renaming the file becomes our first intoduction to the build system `CMake`.
 
@@ -100,7 +100,7 @@ idf_component_register(SRCS "project_name.c"
                     INCLUDE_DIRS ".")
 ```
 
-The build system uses this information to compile the `project_name.c` file in this directory, so it follows if we rename `project_name.c` to `main.c`, the CMakeLists.txt file will also need to be update accordingly. This is something to keep in mind for every file and directory created in the project.
+The build system uses this information to compile the `project_name.c` file in this directory, so it follows if we rename `project_name.c` to `main.c`, the CMakeLists.txt file will also need to be updated accordingly. This is something to keep in mind for every file and directory created in the project.
 
 Now that we can be confident the compiler will find our main file, let's get in to writing what our program flow in pseudocode:
 
