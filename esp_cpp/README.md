@@ -12,12 +12,12 @@
 
 ## Introduction
 
-This third example demonstrates another approach to creating an interface to the ESP-IDF and sensor hardware. The project will use C++ to achieve the same function as the previous project. The ESP-IDF toolchain already supports this capability so the environment we use will be identical to the previous example using the ESP-IDF and C. Another difference to the previous implementation will be an investigation into the creation of a driver for the DHT22 sensor. Previously, we leveraged a driver from the ESP Component Registry, but in this project we will go about reinventing the wheel and in the process, gain some valuable insights into the low level interface to the sensor, and the way the ESP32 behaves in time critical applications.
+This third example demonstrates another ESP-IDF based approach to creating a connected sensing device. The project will use C++ to achieve the same functional outcomes as the previous C-based project. The ESP-IDF toolchain introduced in the previous project iteration has the ability to compile C++, so the environment we use will be identical to the previous example. Another difference to the previous implementation will be an investigation into the creation of a driver for the DHT22 sensor. Previously, we leveraged a driver from the ESP Component Registry, but in this project we will go about reinventing the wheel and in the process, gain some valuable insights into the low level interface to the sensor, and the way the ESP32 behaves in timing-critical applications.
 
 The general approach taken will be to:
 
 - Configure the `main.cpp` file to operate in much the same way as the previous example
-- Explore some C++ features while building out the functions
+- Explore some C++ language features while building out the functions
 - Build a driver for the DHT22 Temperature and Humidity sensor
 
 Let's get in to it.
