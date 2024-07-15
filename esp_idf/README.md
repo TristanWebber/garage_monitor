@@ -215,7 +215,7 @@ A minor change to our approach makes this still trivial to deal with. The `senso
 
 ### Making a component
 
-Another useful feature of the ESP-IDF projects is the ability to place our own libraries in the `components` directory, keeping the main directory uncluttered, and giving us as developers the ability to copy/paste modules created for previous projects into new projects and the IDF immediately knowing how to access those abstractions. To use the peripheral manager as a component, it will be necessary to explore the directory structure and create a `CMakeLists.txt` file.
+Another useful feature of the ESP-IDF projects is the ability to place our own libraries in the `components` directory, keeping the main directory uncluttered, and giving us as developers the ability to copy/paste modules created for previous projects into new projects, and the IDF buiild tools know to look in thisdirectory by default. To use the peripheral manager as a component, it will be necessary to explore the directory structure and create a `CMakeLists.txt` file.
 
 The directory structure should look like this:
 
