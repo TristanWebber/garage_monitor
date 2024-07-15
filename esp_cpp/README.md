@@ -311,7 +311,8 @@ To decode the data, consider it as a group of 5 bytes:
 - The second two bytes encode 10x temperature (degC) as a 16 bit, MSB first, two's complement integer
 - The final byte is a parity byte. It should be the sum of the previous 4 bytes. If this relationship is not preserved, some of the transmission was not accurately collected and should be discarded
 
-**TODO - Add a shot of the packet format**
+![image](https://github.com/user-attachments/assets/daf27757-6ccb-483d-b054-9e114eaff4d9)
+[source](https://cdn-shop.adafruit.com/datasheets/Digital+humidity+and+temperature+sensor+AM2302.pdf)
 
 So let's jump in to the solutions.
 
