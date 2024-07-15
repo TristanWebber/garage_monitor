@@ -274,7 +274,7 @@ With a functioning peripheral manager implementation, it's time to figure out ho
 
 ## The connection_manager files
 
-The functions for the connection management are easily derived from examples provided by the libraries themselves. There are minor exceptions to this, mainly in the application-specific approach to connection failures.
+The functions for the connection management are easily derived from WiFi and MQTT examples provided by Espressif. There are minor exceptions to this, mainly in the application-specific approach to connection failures.
 
 The only reason to touch on these in any detail is to notice how different the implementation looks compared to the Arduino version. Aside from that, it's an exercise in copy and paste.
 
