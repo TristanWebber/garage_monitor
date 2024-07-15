@@ -3,7 +3,7 @@
 
 ## Introduction
 
-Have you ever felt like you left home without shutting the door, leaving your prized possessions visible to all passers by? Have you ever doubled back home only to find the dooe was shut after all and just wasted a bunch of time checking?
+Have you ever felt like you left home without shutting the door, leaving your prized possessions visible to all passers-by? Have you ever doubled back home only to find the door was shut after all, so checking was just a waste of time?
 
 This project seeks to solve this by using a microcontroller to detect the garage door status and transmitting it to a cloud service, allowing for the status to be checked on your phone.
 
