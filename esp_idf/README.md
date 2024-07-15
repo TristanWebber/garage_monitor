@@ -171,7 +171,7 @@ void read_and_send_task(void *pvParameters) {
 }
 ```
 
-This way, the task will always ask the scheduler to start at `PUBLISH_INTERVAL` increments after it first started. It's a subtle difference, but it means that the occassional long running task won't muck with the next scheduled read and send event the same way a simple delay would.
+This requests that the scheduler switches to `read_and_send_task` every `PUBLISH_INTERVAL` increment after it first started. It's a subtle difference, but it means that the occassional long running task won't muck with the next scheduled read and send event the same way a simple delay would.
 
 ## The peripheral_manager files
 
