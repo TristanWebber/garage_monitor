@@ -623,6 +623,10 @@ Commands to build, flash and monitor the project are as per the previous project
 
 This implementation has shown that some facets of C++ are easily used with ESP-IDF. This can deliver benefits in the form of higher level features and data structures and allows for better control of interfaces, particularly where a project may use multiple instances of a sensor. The exercise of creating a driver for the DHT22 sensor allowed for a practical investigation into how to communicate with a digital device. It also gave a deep dive in to the realities of how FreeRTOS interacts with tasks.
 
-The next subproject will explore using Rust with the ESP32, via the Standard Library.
+The next subproject will explore using Rust with the ESP32, via the Standard Library. Rewriting in Rust will show yet another approach to solving this same problem. In doing so, it will show how:
+
+- Rust's _error as value_ approach will force us to explicitly handle some of the failure modes we have conveniently ignored in the previous implementations
+- Like C++, embedded Rust allows low-level control if we want it, but also facilitates the use of standard language features and thus we can often ignore many device-specific characteristics
+- Rust's memory safety features require us to take quite a different approach to concurrency
 
 Check it out [here](https://github.com/TristanWebber/garage_monitor/tree/main/rs_std)
