@@ -7,6 +7,8 @@ use esp_idf_svc::hal::delay;
 use esp_idf_svc::hal::gpio::{InterruptType, PinDriver, Pull};
 use esp_idf_svc::hal::peripherals::Peripherals;
 
+use dht_sensor::{DhtReading, dht22};
+
 fn main() -> Result<()> {
     // Boilerplate for ESP std Rust projects
     esp_idf_svc::sys::link_patches();
@@ -19,6 +21,9 @@ fn main() -> Result<()> {
     let mut door_switch = PinDriver::input(peripherals.pins.gpio3)?;
     door_switch.set_pull(Pull::Down)?;
     door_switch.set_interrupt_type(InterruptType::AnyEdge)?;
+
+    // Sets GPIO4 as an input/output
+    let mut sensor_pin = PinDriver::input_output(peripherals.pins.gpio4)?;
 
     // Flag to track if an interrupt has been triggered. Use <Arc<Mutex<bool>> for thread safety
     let interrupt_triggered = Arc::new(Mutex::new(false));
@@ -33,12 +38,22 @@ fn main() -> Result<()> {
 
     let door_switch = Arc::new(Mutex::new(door_switch));
 
-    // Read and log the level of the reed switch, then yield for 1 second
+    // Read and log the level of the reed switch, then yield for DELAY seconds
+    const DELAY_S: u32 = 30;
     let door_switch_t1 = door_switch.clone();
     let thread1 = thread::spawn(move || loop {
+        // Read from the door switch
         let level = door_switch_t1.lock().unwrap().is_high();
         log::info!("Thread 1: GPIO3 level is {}", level);
-        delay::FreeRtos::delay_ms(1000);
+
+        // Read from the dht sensor
+        let mut dht_delay = delay::Ets;
+        sensor_pin.set_high().unwrap();
+        match dht22::Reading::read(&mut dht_delay, &mut sensor_pin) {
+            Ok(read) => log::info!("Thread 1: Temperature: {}, Humidity: {}", read.temperature, read.relative_humidity),
+            Err(e) =>log::error!("Thread 1: Failed to read DHT sensor. Error: {:?}", e),
+        }
+        delay::FreeRtos::delay_ms(DELAY_S * 1000);
     });
 
     // Thread to listen for interrupts
