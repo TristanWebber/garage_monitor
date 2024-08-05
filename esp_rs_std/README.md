@@ -36,12 +36,12 @@ cd garage_monitor && \
 git sparse-checkout esp_rs_std && \
 git checkout
 ```
-4. [Update](#the-config-file) and rename the `_config.h` file
+4. [Update](#the-config-file) and rename the `_config.rs` file
 5. [Build and flash](#building-and-flashing) the project to your microcontroller
 
 ## The strategy
 
-This iteration of the project will focus on key Rust language features and challenges. The general structure of the project will loosely mirror the previous versions, and the focus of the README commentary will be on incrementally building out the functions. Some of the detail of the previous projects will be omitted from this version. So beware - This version of the monitor is not a one-to-one equivalent of the ESP-IDF versions. The code will compile and performs the core requirements, but is not resilient to real-world factors like intermittent wifi. However, these shortfalls are concious decisions to instead focus on documenting some of the most important concepts for creating multitasking applications on the esp32 with `std` Rust.
+This iteration of the project will focus on key Rust language features and challenges. The general structure of the project will loosely mirror the previous versions, and the focus of the README commentary will be on incrementally building out the functions. Some of the detail of the previous projects will be omitted from this version. So beware - This version of the monitor is not a one-to-one equivalent of the ESP-IDF versions. The code will compile and performs the core requirements, but is not resilient to real-world factors like intermittent wifi. However, these shortfalls are conscious decisions to instead focus on documenting some of the most important concepts for creating multitasking applications on the esp32 with `std` Rust.
 
 The commentary will cover:
 - Reading from a GPIO
@@ -105,7 +105,7 @@ fn main() -> ! {
 }
 ```
 
-This minimal program will display a message once a second and in all likelihood, will never throw an error. This provides a first opportunity to look at some key differences between Rust and C. Examining the return type of some of the functions used in this simple example, observe that `Result<T, E>` is used. That is, the functions could return the values we want, or they could return an error as a value. As the programmer we are forced to deal with this explicitly, unlike in the previous iterations where we often simply ignore the possibility of certain functions failing. In the example above, we have used `unwrap()` as a path of least resistance. This means that if an error occurs, the program will panic. In this program, if the basic gpio configuration fails, a panic is appropriate but there are better ways to aproach this that become increasingly important as applications become more complex. The `anyhow` crate allows for unhandled errors to be handled at an application-level and logged with additional context, making our debugging cleaner and easier than it could otherwise be. We can start using anyhow by adding the crate as a dependency in our `Cargo.toml` file and updating our `main.rs` file as follows:
+This minimal program will display a message once a second and in all likelihood, will never throw an error. This provides a first opportunity to look at some key differences between Rust and C. Examining the return type of some of the functions used in this simple example, observe that `Result<T, E>` is used. That is, the functions could return the values we want, or they could return an error as a value. As the programmer we are forced to deal with this explicitly, unlike in the previous iterations where we often simply ignore the possibility of certain functions failing. In the example above, we have used `unwrap()` as a path of least resistance. This means that if an error occurs, the program will panic. In this program, if the basic gpio configuration fails, a panic is appropriate but there are better ways to approach this that become increasingly important as applications become more complex. The `anyhow` crate allows for unhandled errors to be handled at an application-level and logged with additional context, making our debugging cleaner and easier than it could otherwise be. We can start using anyhow by adding the crate as a dependency in our `Cargo.toml` file and updating our `main.rs` file as follows:
 
 #### **`Cargo.toml`**
 ```toml
@@ -137,16 +137,16 @@ fn main() -> Result<()> {
 }
 ```
 
-We're still saying that we think an error is unlikely and the program should crash if that happens but `anyhow` will handle it. Rather than using `unwrap()` everywhere, we use `?` giving a slightly more terse syntax.
+We're still saying that we think an error is unlikely and the program should crash if that happens but `anyhow` will handle it at the top level. In contrast to the first example where the main function cannot return (`fn main() -> !`), it can now return a Result with no value, and any kind of result. Rather than using `unwrap()` everywhere, we use `?` giving a slightly more terse syntax.
 
 That's the basic structure of a digital read sorted, but the design brief requires interrupts, so that when a change of state occurs, the state can be broadcast as soon as possible. Like our previous FreeRTOS implementations, we can solve this by:
 - Enable an interrupt on the relevant GPIO
 - Create an interrupt callback function
 - Create a task to listen for notifications from the interrupt callback
 
-This iteration results in a not-so-gentle introduction to concurrency in Rust. At a very basic level, we can take a similar approach to C++ to create FreeRTOS tasks without touching FreeRTOS. One way to do this is using the `std::thread::spawn<F, T>` API, and this allows for very easy creation of threads when they are independent of the rest of the system. However, when sharing data between threads, Rust suddenly becomes quite different to C and C++. Rust seeks to avoid any ambiguity about ownership of resources. But the realities of real-world threaded applications is that sharing of data is unavoidable. In this example, multiple threads will need to access the GPIO and information about the state of the interrupt.
+This iteration results in a not-so-gentle introduction to concurrency in Rust. At a very basic level, we can take a similar approach to what was used in the C++ version to create FreeRTOS tasks without touching FreeRTOS. One way to do this is using the `std::thread::spawn<F, T>` API, and this allows for very easy creation of threads when they are independent of the rest of the system. However, when sharing data between threads, Rust suddenly becomes quite different to C and C++. Rust seeks to avoid any ambiguity about ownership of resources. But the realities of real-world threaded applications is that sharing of data is unavoidable. In this example, multiple threads will need to access the GPIO and information about the state of the interrupt.
 
-We will use `Arc<Mutex<T>>` to allow for threads to share resources. The Mutex protects against race conditions, and the Arc (Atomic Reference Counter) allows the borrow checker to keep track of how many references exist. When the Arc determines that there are no references remaining in any scope, the item is dropped.
+We will use `Arc<Mutex<T>>` to allow for threads to share resources. This is one of many approaches that could be used, however for simplicity and consistency, this example only considers this solution. The Mutex protects against race conditions, and the Arc (Atomic Reference Counter) allows the borrow checker to keep track of how many references exist. When the Arc determines that there are no references remaining in any scope, the item is dropped. 
 
 #### **`main.rs`**
 ```rs
@@ -210,13 +210,15 @@ fn main() -> Result<()> {
 }
 ```
 
-Like the previous examples, the pin is configured so that it triggers an interrupt on any edge. We will create a callback function that will be executed whenever the interrupt is detected. In this case, all the callback does is sets the value of a boolean. A sender thread will listen for changes to this boolean and when a change is detected, the value of the pin will be read and a message will be logged.
+Like the previous examples, the pin is configured so that it triggers an interrupt on any edge. We will create a callback function that will be executed whenever the interrupt is detected. In this case, all the callback does is sets the value of a boolean (note: this could also be an atomic bool rather than the Arc<Mutex<>>).
 
-This introduces the two pieces of data that will be shared between threads - the gpio itself, and the flag to be set by the interrupt callback. Before these are shared to their respective threads, they are wrapped in Arc<Mutex<T>> and cloned each time they are moved. Then, in syntax familiar to Mutex in any other language, we `lock()` the mutex when we want to access the underlying structure.
+The `unsafe` block around the interrupt callback subscription is required because the Rust compiler is unable to verify the safety of the underlying function call. In this case, the underlying `subscribe` function is unsafe because it is executed in the ISR (Interrupt Service Routine) context and therefore accessing certain APIs (particularly FreeRTOS APIs) will cause a crash. Because the underlying function is potentially unsafe, the programmer is responsible for using it correctly and the `unsafe` block flags to the programmer and future maintainers that care is required in implementing or modifying this code. As an example, on paper this looks like a perfect place to use a task notification, however accessing the task notification from the ISR callback and the sender thread will result in a crash. Similarly, a MPSC (multiple producer, single consumer) sender and receiver model could work here but is incompatible with the ISR handler.
+
+A sender thread will listen for changes to the boolean and when a change is detected, the value of the pin will be read and a message will be logged. This introduces the two pieces of data that will be shared between threads - the gpio itself, and the flag to be set by the interrupt callback. Before these are shared to their respective threads, they are wrapped in Arc<Mutex<T>> and cloned each time they are moved. Then, in syntax familiar to Mutex in any other language, we `lock()` the mutex when we want to access the underlying structure.
 
 Some syntax that is very common in Rust, but does not exist in C, is the use of closures, or unnamed functions. In this case, closures have been used for the interrupt callback and the threads. The closures use the syntax `|args| {code_to_run}` and this saves us writing a function. This is handy if the function is short and/or we do not intend to reuse the function elsewhere. However, it would have been equally valid to call a function in each of the three locations a closure was used here. As a final note, the `move` keyword captures the values used in the closure. That is, ownership is moved to the closure.
 
-The DHT sensor is managed by using a crate. Implementing the interface is a straightforward case of executing according to the docs but there is a good opportunity to to investigate a rusty approach to dealting with a result type.
+The DHT sensor is managed by using a crate. Implementing the interface is a straightforward case of executing according to the docs but there is a good opportunity to to investigate a rusty approach to dealing with a result type.
 
 ```rs
 match dht22::Reading::read(&mut dht_delay, &mut sensor_pin) {
@@ -232,7 +234,9 @@ match dht22::Reading::read(&mut dht_delay, &mut sensor_pin) {
 }
 ```
 
-When reading the sensor, a result is returned and we `match` if the result contains a read or an error. Rather than the `?` operator (deal with the error elsewhere) or `unwrap()` (panic if something goes wrong), the `Err(e)` arm of the match allows us to execute whatever code is neede. In this case, we consider the door reading to be more important than the environmental reads so if the environmental sensor result contains an error, we simply log that error, publish the door status and continue with the program.
+When reading the sensor, a result is returned and we `match` if the result contains a read or an error. Rather than the `?` operator (deal with the error elsewhere) or `unwrap()` (panic if something goes wrong), the `Err(e)` arm of the match allows us to execute whatever code is needed. In this case, we consider the door reading to be more important than the environmental reads so if the environmental sensor result contains an error, we simply log that error, publish the door status and continue with the program. In this project, the peripheral manager has not been packaged into a separate module however this is perfectly reasonable to do (perhaps a TODO for later). In the C projects, the peripherals data was stored in a struct and this pattern is also possible in Rust. And in the like the C++ project, methods can also be implemented on the struct to allow for a high degree of control over module APIs.
+
+A note and perhaps a TODO for later is the use of `delay::FreeRtos::delay_ms(ms: u32)` throughout this code. A nicer approach would be to use the `thread::sleep(dur: Duration)` wrapper instead, however it appears there is a bug in the esp-rs `std` implementation of `thread::sleep` wrapper resulting in the watchdog timer being triggered when this is used exclusively. One way to avoid this was to remove the `thread.join` method calls and replace with a busy loop at the end of the main function and it was hard to tell which of the two approaches felt more hacky. The deemed path of least resistance here was to use the FreeRTOS delay and just move on.
 
 With the basic interface to the reed switch in place, the next item to look at is connectivity.
 
@@ -248,7 +252,7 @@ This process is:
 - Create the MQTT client
 - Allow the MQTT client to be accessed by concurrent threads
 
-Adding the connectivity is an opportunity to move some code out of `main.rs` to keep things tidy, and to explore modules.
+Adding the connectivity is an opportunity to move some code out of `main.rs` to keep things tidy, and to briefly explore modules.
 
 Drawing on the examples from the `esp_idf_svc` crate documentation, the above steps would be achieved by:
 
@@ -331,6 +335,8 @@ This throws us headlong into some of the more aesthetically jarring syntax of Ru
 In contrast to the previous section where we were accessing the value inside results, this time we're returning a result. Here, the real value of the `?` operator becomes clear. In the `wifi_create` function, note that there is a single point where a successful result is returned - The final line `Ok(esp_wifi)`. In contrast there are many potential failure points. Every other step could return an error. This is managed by the use of the `?` operator, and this works as shorthand for checking for an error, and returning early if one has occurred. This can save a lot of lines of code in some situations.
 
 This leaves the `<'static>` lifetime annotation. Consider the `EspMqttClient` and the way this object will be used in practice. It's something that we could plausibly want to use on an ad-hoc basis to publish or subscribe. This poses a challenge for the borrow checker because, in overly simplified terms the borrow checker says "use it or lose it". The lifetime annotation is a way to explicitly tell the compiler how something should be used and the brute force <'static> annotation will guarantee the variable lasts the life of the program.
+
+A warning to anyone looking to reuse this in robust code - the implementation is incomplete. Handlers for connectivity have not been implented in this example. Consider this a TODO if motivation goes that way. The Rust APIs allow for callbacks to be attached to events (like the idiomatic IDF approach), or for more a more linear check connection and reconnect before every attempt to use the connection (like the Arduino approach).
 
 ## The config file
 
