@@ -14,3 +14,4 @@ sdkconfig.old
 ca_cert.h
 ca_cert.pem
 config.h
+config.rs
