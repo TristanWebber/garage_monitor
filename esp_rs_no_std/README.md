@@ -62,6 +62,7 @@ cargo run
 This will build, flash and monitor. The tool will autodetect the device. Like the esp-idf and platform io tools used in previous projects, we can explicitly pass arguments if required, and this project will show some of those options as it progresses.
 
 ## Reading a GPIO
+### Simple periodic GPIO read
 Reading from a GPIO in a `no-std` project does not differ significantly from the `std` approach of the previous example. There is still a HAL (the `esp_hal` crate) to facilitate basic operations using an API, so we needn't worry about reading and writing from registers. The process still involves some basic configuration and then periodic reading of the GPIO:
 
 ```rs
@@ -100,6 +101,7 @@ fn main() -> ! {
 
 In our previous four projects, by the time the processor hits our application code, a lot of invisible code has already been run and some threads are already running on the processor. This time that is not the case, and this is flagged with tags `#![no_std]`, `#![no_main]` and `#[entry]`. Not having FreeRTOS up and running means that our `main` is the only process running at this point, but it also means that there is no FreeRTOS delay to lean on, so we use abstractions over the system clock that implement a blocking delay. This is a double edged sword in that the implementation is doing only what we ask it to (aka very little) but there is no sophisitication and if we wanted to multitask, we would need to take a different approach. This is reflected in the binaries as well - compiling this is very fast, and the binary is tiny.
 
+### Enable a GPIO Interrupt
 Next, let's adapt this to enable an interrupt on the same gpio. First, another dependency will need to be added to Cargo.toml:
 
 #### **`Cargo.toml`**
@@ -112,6 +114,7 @@ critical-section = "1.1.2"
 
 Then let's log change of state with an interrupt handler:
 
+#### **`main.rs`**
 ```rs
 // ---snip---
 use core::cell::RefCell;
@@ -171,11 +174,206 @@ In similar fashion to the previous project, things escalated quickly because a m
 
 Notice that there is still no sign of an operating system. The GPIO interrupt is a hardware interrupt, so when it is triggered, it sets a flag for the CPU, causing the CPU to change context to a set of instructions in a different area of memory to the normal instructions. This allows this example to have an asynchronous 'task' without needing the overhead of an operating system, and this results in a very small and efficient binary that performs the task we have programmed, and nothing more.
 
-TODO - add debounce timer, read dht, create threads.
+### Add a debounce timer
+The extremely low latency of the gpio interrupt means that a debounce will be needed. Like the previous examples, a timer can be used. Without an OS, we can again rely on hardware features and user a timer callback. Let's reimagine the program flow:
+
+- A GPIO interrupt triggers the gpio interrupt handler. Here, we:
+    - Clear the GPIO interrupt
+    - Temporarily stop listening for further GPIO interrupts
+    - Start a debounce timer
+- The timer expires and triggers the timer interrupt handler. Here, we:
+    - Clear the timer interrupt
+    - Read the GPIO state and log it
+    - Re-listen for future GPIO interrupts
+
+The code with additions and modifications looks like this:
+
+```rs
+// ---snip---
+// Import modules and crates for timer
+use esp_hal::interrupt::{self, Priority},
+use esp_hal::peripherals::{Interrupt, TIMG0},
+use esp_hal::timer::timg::{Timer, Timer0, TimerGroup},
+// ---snip---
+
+// Create a Mutex<RefCell<_>> for the Timer
+static DEBOUNCE_TIMER: Mutex<RefCell<Option<Timer<Timer0<TIMG0>, esp_hal::Blocking>>>> = Mutex::new(RefCell::new(None));
+
+#[entry]
+fn main() -> ! {
+    // ---snip---
+
+    // Create interrupt timer
+    let timg0 = TimerGroup::new(peripherals.TIMG0, &clocks, None);
+    let debounce_timer = timg0.timer0;
+    debounce_timer.set_interrupt_handler(timer_handler);
+    interrupt::enable(Interrupt::TG0_T0_LEVEL, Priority::Priority1).unwrap();
+
+    // Move timer to the mutex refcell
+    critical_section::with(|cs| {
+        debounce_timer.listen();
+        DEBOUNCE_TIMER.borrow_ref_mut(cs).replace(debounce_timer);
+    });
+
+    // ---snip---
+}
+
+// GPIO Interrupt handler unlistens, clears interrupt and starts debounce timer
+#[handler]
+fn handler() {
+    critical_section::with(|cs| {
+        // Clear GPIO interrupts
+        let mut door_switch = DOOR_SWITCH.borrow_ref_mut(cs);
+        let door_switch = door_switch.as_mut().unwrap();
+        door_switch.clear_interrupt();
+        door_switch.unlisten();
+
+        // Start debounce timer
+        let mut debounce_timer = DEBOUNCE_TIMER.borrow_ref_mut(cs);
+        let debounce_timer = debounce_timer.as_mut().unwrap();
+        debounce_timer.load_value(50u64.millis()).unwrap();
+        debounce_timer.start();
+    });
+}
+
+// Timer handler clears timer interrupt, reads door state, relistens for door interrupt
+#[handler]
+fn timer_handler() {
+    critical_section::with(|cs| {
+        DEBOUNCE_TIMER
+            .borrow_ref_mut(cs)
+            .as_mut()
+            .unwrap()
+            .clear_interrupt();
+
+        // Read the door GPIO state
+        let mut door_switch = DOOR_SWITCH.borrow_ref_mut(cs);
+        let door_switch = door_switch.as_mut().unwrap();
+        println!("Interrupt triggered. Door is closed?: {}", door_switch.is_high());
+
+        // Relisten for GPIO interrupts
+        door_switch.listen(Event::AnyEdge);
+    });
+}
+```
+
+### Read from a DHT22 sensor
+
+The project will use the same `dht-sensor` crate as the previous project. This approach will show how Generics and Traits in Rust can be useful for interoperability. First, the dependency can be added to the project:
+
+#### **`Cargo.toml`**
+```toml
+[dependencies]
+# ---snip---
+dht-sensor = "0.2.1"
+embedded-hal = { version = "0.2.7", features = [ "unproven" ] }
+# ---snip---
+```
+
+The `features = [ "unproven" ] flag is necessary to achieve compatibility between the sensor crate and the esp-hal crate. With the dependencies managed, the general process of reading the sensor is identical to the previous project. Attempting the obvious first attempt:
+
+#### **`main.rs`**
+```rs
+// ---snip---
+use dht_sensor::{dht22, DhtReading};
+// ---snip---
+fn main() -> ! {
+    // ---snip---
+    // Sets GPIO4 as an input/output
+    let mut sensor_pin = OutputOpenDrain::new(io.pins.gpio4, Level::High, Pull::None);
+    let mut delay = Delay::new(&clocks);
+
+    loop {
+        // Read DHT22 sensor
+        match dht22::Reading::read(&mut delay, &mut sensor_pin) {
+            Ok(read) => {
+                println!("Temperature: {}, Humidity: {}", read.temperature, read.relative_humidity);
+            },
+            Err(e) => {
+                println!("Failed to read DHT sensor. Reason: {:?}", e);
+            },
+        }
+
+        delay.delay_millis(300_000);
+    }
+}
+```
+
+Results in a slew of errors emanating from the `dht22::Reading::read` method, all pointing towards the delay and pin arguments failing to satisfy trait bounds. This means that the Delay and OutputOpenDrain types from the esp_hal crate are not implicitly compatible with the Delay and InputOutputPin types the dht_sensor crate is expecting to use. This is fine as long as we implement the missing traits, and by extension, ensure that the necessary methods are available.
+
+To do this, let's create some wrapper types in a separate module. From the first unsuccessful attempt at making the driver work, there were some very useful error messages that become the TODO list. For the GPIO, the InputPin and OutputPin traits need to be satisfied. And as we start to implement those traits, Rust Analyzer starts to reveal the types and methods that need to be implemented in those traits to ensure compatibility.
+
+First, import crates and modules, using aliases because there are some naming conflicts. Then create our adapter type as a struct that simply contains the type we need to adapt - The `esp_hal::gpio::OutputOpenDrain` type. We need a `SensorAdapter::new()` method in order to actually use the new type:
+
+#### **`dht_adapter.rs`**
+```rs
+use esp_hal::{
+    gpio::{InputPin, Level, OutputOpenDrain, OutputPin, Pull},
+    peripheral::Peripheral,
+};
+
+use embedded_hal::digital::v2::{InputPin as DhtInputPin, OutputPin as DhtOutputPin};
+
+// sensor pin needs to implement traits embedded_hal::digital::v2::InputPin and embedded_hal::digital::v2::OutputPin
+pub struct SensorAdapter<'a, P> {
+    inner: OutputOpenDrain<'a, P>,
+}
+
+impl<'a, P> SensorAdapter<'a, P>
+where
+    P: InputPin + OutputPin,
+{
+    pub fn new(pin: impl Peripheral<P = P> + 'a) -> Self {
+        SensorAdapter {
+            inner: OutputOpenDrain::new(pin, Level::High, Pull::None),
+        }
+    }
+}
+```
+
+So far, this is all pretty straightforward. Our wrapper type just contains the base type. The magic happens when the traits are implemented for the adapter. If we were to start implementing one of the traits, the LSP would kindly tell us that for the InputPin trait, our base type is missing an `Error`, and methods `fn is_high(&self) -> Result<bool, Error>`, `fn is_low...`. Curiously, our base type already has these methods, but they do not implement an Error type, and they simply return a straigh bool type, rather than a Result.
+
+So our wrapper needs to reconcile these differences:
+
+```rs
+impl<'a, P> DhtInputPin for SensorAdapter<'a, P>
+where
+    P: InputPin + OutputPin,
+{
+    type Error = core::convert::Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.inner.is_high())
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.inner.is_low())
+    }
+}
+
+impl<'a, P> DhtOutputPin for SensorAdapter<'a, P>
+where
+    P: InputPin + OutputPin,
+{
+    type Error = core::convert::Infallible;
+
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.inner.set_high())
+    }
+
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.inner.set_low())
+    }
+}
+```
+
+Our base type doesn't return an error so in our trait implementation, the Error type is set as `Infallible`. For our methods, we call the methods on the base type and wrap the return value in `Ok()` so the return types are compatible. Now the traits are implemented and we've created compatibility between the driver crate and the no-std crate. A similar process is required for the Delay base type and the DelayMs & DelayUs traits. With that out of the way, minor changes to `main.rs` results in a fully functioning application - Still very small, fast and without operating system.
+
+Next up, the connectivity needs to be tackled so that the results can be transmitted to our broker and inspected on our dashboard.
 
 ## Connectivity
 
-TODO - talk about no-std approach to wifi, implement wifi, implement mqtt
+TODO - talk about no-std approach to wifi, implement wifi, implement mqtt, embassy
 
 ## The config file
 
