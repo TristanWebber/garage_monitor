@@ -1,4 +1,4 @@
-# Rust `std` Implementation
+# Rust `no-std` Implementation
 
 - [Introduction](#introduction)
 - [Quickstart](#quickstart)
@@ -12,7 +12,7 @@
 
 ## Introduction
 
-This second Rust iteration of the garage monitor uses a different approach again - It is based on the `no-std` library. Recall that the previous iteration implemented the Rust `std` library as an abstraction over the ESP-IDF. That meant that we had all features of the ESP-IDF available to us for rapid developlment of features, but any application code we produced was a FreeRTOS task and therefore we did not have full control over scheduling and preempting. If we happened to want to guarantee that the only code being executed on the device was controlled by us to run exactly how and when we want, a `no-std` approach lets us achieve that. Another downside of all of the previous applications is their reliance on Espressif APIs to precompiled binaries. This created an unavoidable dependency on closed source code by a third party.
+This second Rust iteration of the garage monitor uses a different approach again - It is based on the `no-std` crate. Recall that the previous iteration was based on the Rust `std` crate - a Rust abstraction over the C bindings of the ESP-IDF. That meant that we had all features of the ESP-IDF available to us for rapid development of features and familiar APIs, but any application code we produced was a FreeRTOS task and therefore we did not have full control over scheduling and preempting. If we happened to want to guarantee that the only code being executed on the device was controlled by us to run exactly how and when we want, a `no-std` approach lets us achieve that. Another reason to favour `no-std` is it can remove dependencies on many of the Espressif APIs to precompiled binaries, as was commonplace in all of the previous examples. This created an unavoidable dependency on closed source code by a third party, and for some developers this could be considered unacceptable.
 
 In this example, the tradeoffs and benefits of the no-std approach will be explored.
 
@@ -35,16 +35,16 @@ git checkout
 
 ## The strategy
 
-This project will examine the differences and similarities between the std and no-std approaches to programming an esp32 in Rust. It will follow a similar approach to similar projects by building out the features individually.
+This project will examine the differences and similarities between the `std` and `no-std` approaches to programming an esp32 in Rust. It will follow a similar approach to previous projects by building out the features individually.
 
 The commentary will cover:
 - Reading from a GPIO and setting an interrupt
-- Concurrency
-- Wifi and MQTT
+- Concurrency without FreeRTOS
+- Wifi and MQTT without ESP-IDF
 
 ## Getting started
 
-Of course, this repository exists and none ofthese steps are necessary if you simply want to use this repository but if you want to walk along with the entire process, here's how. Assuming you already have your [development environment](https://docs.esp-rs.org/book/installation/index.html) setup for `std` applications, create a new project using the following method. You can use whatever ESP32 you like, but pins used in this project are based on the `Seeed Studio XIAO ESP32C3`.
+Of course, this repository exists and none of these steps are necessary if you simply want to use this repository but if you want to walk along with the entire process, here's how. Assuming you already have your [development environment](https://docs.esp-rs.org/book/installation/index.html) setup for `no-std` applications, create a new project using the following method. You can use whatever ESP32 you like, but pins used in this project are based on the `Seeed Studio XIAO ESP32C3`.
 
 Using the `cargo-generate` tool, we create a brand new project from a esp-template:
 
@@ -52,18 +52,18 @@ Using the `cargo-generate` tool, we create a brand new project from a esp-templa
 cargo generate esp-rs/esp-template
 ```
 
-This uses a series of prompts to create a partially configured project. When prompted, select a name for the project, select the target (ESP32C3 in this case) and do not enter the advanced configuration menu. If prompted to run `cargo fmt`, select no because this may result in failure if this is not already installed on your system. If everything executes correctly, you'll have a template project ready to build. If you want to make sure your toolchain is working properly and you want to see rust running on your board ASAP, you can simply enter the project directory and use the `cargo run` command:
+This uses a series of prompts to create a partially configured project. When prompted, select a name for the project, select the target (ESP32C3 in this case) and do not enter the advanced configuration menu. If prompted to run `cargo fmt`, choose yes if you like, however if this is your first time, it will probably be a little slower because it will need to download dependencies. If everything executes correctly, you'll have a template project ready to build. If you want to make sure your toolchain is working properly and you want to see rust running on your board ASAP, you can simply enter the project directory and use the `cargo run` command:
 
 ```bash
 cd esp_rs_no_std
 cargo run
 ```
 
-This will build, flash and monitor. The tool will autodetect the device. Like the esp-idf and platform io tools used in previous projects, we can explicitly pass arguments if required, and this project will show some of those options as it progresses.
+This will build, flash and monitor the template 'hello world' application. The tool will autodetect the device. Like the esp-idf and platform io tools used in previous projects, we can explicitly pass arguments if required, and this project will show some of those options as it progresses.
 
 ## Reading a GPIO
 ### Simple periodic GPIO read
-Reading from a GPIO in a `no-std` project does not differ significantly from the `std` approach of the previous example. There is still a HAL (the `esp_hal` crate) to facilitate basic operations using an API, so we needn't worry about reading and writing from registers. The process still involves some basic configuration and then periodic reading of the GPIO:
+Reading from a GPIO in a `no-std` project has only minor differences to the `std` approach of the previous example. There is still a HAL (the `esp_hal` crate) to facilitate basic operations using an API, so we needn't worry about reading and writing from registers. The process still involves some basic configuration and then periodic reading of the GPIO:
 
 ```rs
 #![no_std]
@@ -102,7 +102,7 @@ fn main() -> ! {
 In our previous four projects, by the time the processor hits our application code, a lot of invisible code has already been run and some threads are already running on the processor. This time that is not the case, and this is flagged with tags `#![no_std]`, `#![no_main]` and `#[entry]`. Not having FreeRTOS up and running means that our `main` is the only process running at this point, but it also means that there is no FreeRTOS delay to lean on, so we use abstractions over the system clock that implement a blocking delay. This is a double edged sword in that the implementation is doing only what we ask it to (aka very little) but there is no sophisitication and if we wanted to multitask, we would need to take a different approach. This is reflected in the binaries as well - compiling this is very fast, and the binary is tiny.
 
 ### Enable a GPIO Interrupt
-Next, let's adapt this to enable an interrupt on the same gpio. First, another dependency will need to be added to Cargo.toml:
+Next, let's adapt this to enable an interrupt on the same gpio. The whole point of the device is to be able to very rapidly see what the actual state of the door is, so polling the sensor periodically is not enough. To achieve this, another dependency will need to be added to Cargo.toml:
 
 #### **`Cargo.toml`**
 ```toml
@@ -172,10 +172,32 @@ fn handler() {
 
 In similar fashion to the previous project, things escalated quickly because a mutable reference needs to be shared. This time, a global Mutex<RefCell<Option<_>>> is the data structure of choice because the interrupt handler cannot take any arguments. Creating this globally means it is declared before the GPIO has been configured. To borrow the reference within the Mutex<RefCell<>> a critical section is required. Setting this up has doubled the amount of code, but allows us to use the GPIO in both our main function and the interrupt.
 
-Notice that there is still no sign of an operating system. The GPIO interrupt is a hardware interrupt, so when it is triggered, it sets a flag for the CPU, causing the CPU to change context to a set of instructions in a different area of memory to the normal instructions. This allows this example to have an asynchronous 'task' without needing the overhead of an operating system, and this results in a very small and efficient binary that performs the task we have programmed, and nothing more.
+Notice that there is still no sign of an operating system. The GPIO interrupt is a hardware interrupt, so when it is triggered, it sets a flag for the CPU, causing the CPU to change context to a set of instructions in a different area of memory to the normal instructions. This allows this example to have an asynchronous 'task' without needing the overhead of an operating system, and this results in a very small and efficient binary that performs the task we have programmed, and nothing more. If you are keen to validate this, you can look at the assembly:
+
+```bash
+# Install the relevant tools
+cargo install cargo-binutils
+rustup component add llvm-tools
+# Disassemble the binary and dump to a file
+cargo objdump --bin esp_rs_no_std --release -- --disassemble --no-show-raw-insn --print-imm-hex > esp_rs_no_std.S
+```
+
+#### **`esp_rs_no_std.S`**
+```asm
+// ---snip---
+//Disassembly of section .rwtext:
+
+40380460 <interrupt1>:
+40380460:       mv a1, a0
+40380462:       li a0, 0x1
+40380464:       j 0x40380602 <handle_interrupts>
+// ---snip---
+```
+
+First off, all of the interrupts are in the `.rwtext`, segmented away from the rest of the code. Secondly, none of the assembly has a jump to any of the interrupts, so we have verified that if these are called, it is by the hardware, not the software. So this shows us that whenever a hardware interrupt occurs, the application jumps to the `handle_interrupts` function with two arguments (a1, a0) and iterates through any configured interrupts then applies any handlers.
 
 ### Add a debounce timer
-The extremely low latency of the gpio interrupt means that a debounce will be needed. Like the previous examples, a timer can be used. Without an OS, we can again rely on hardware features and user a timer callback. Let's reimagine the program flow:
+The extremely low latency of the gpio interrupt means that a debounce will be needed to prevent noisy data that occurs from multiple interrupt triggers from the same event. Like the previous examples, a timer can be used. Without an OS, we can again rely on hardware features and user a timer callback. Let's reimagine the program flow:
 
 - A GPIO interrupt triggers the gpio interrupt handler. Here, we:
     - Clear the GPIO interrupt
@@ -188,6 +210,7 @@ The extremely low latency of the gpio interrupt means that a debounce will be ne
 
 The code with additions and modifications looks like this:
 
+#### **`main.rs`**
 ```rs
 // ---snip---
 // Import modules and crates for timer
@@ -270,7 +293,7 @@ embedded-hal = { version = "0.2.7", features = [ "unproven" ] }
 # ---snip---
 ```
 
-The `features = [ "unproven" ] flag is necessary to achieve compatibility between the sensor crate and the esp-hal crate. With the dependencies managed, the general process of reading the sensor is identical to the previous project. Attempting the obvious first attempt:
+The `features = [ "unproven" ]` flag is necessary to achieve compatibility between the sensor crate and the esp-hal crate. With the dependencies managed, the general process of reading the sensor is identical to the previous project. The obvious first attempt using a pin and delay from esp-hal:
 
 #### **`main.rs`**
 ```rs
@@ -299,11 +322,11 @@ fn main() -> ! {
 }
 ```
 
-Results in a slew of errors emanating from the `dht22::Reading::read` method, all pointing towards the delay and pin arguments failing to satisfy trait bounds. This means that the Delay and OutputOpenDrain types from the esp_hal crate are not implicitly compatible with the Delay and InputOutputPin types the dht_sensor crate is expecting to use. This is fine as long as we implement the missing traits, and by extension, ensure that the necessary methods are available.
+Results in a slew of errors emanating from the `dht22::Reading::read` method, all pointing towards the delay and pin arguments failing to satisfy trait bounds. This means that the `Delay` and `OutputOpenDrain` types from the esp_hal crate are not implicitly compatible with the `Delay` and `InputOutputPin` types the dht_sensor crate is expecting to use. This is fine as long as we implement the missing traits, and by extension, ensure that the necessary methods are available.
 
-To do this, let's create some wrapper types in a separate module. From the first unsuccessful attempt at making the driver work, there were some very useful error messages that become the TODO list. For the GPIO, the InputPin and OutputPin traits need to be satisfied. And as we start to implement those traits, Rust Analyzer starts to reveal the types and methods that need to be implemented in those traits to ensure compatibility.
+To do this, let's create some wrapper types in a separate module. From the first unsuccessful attempt at making the driver work, there were some very useful error messages that become the TODO list. For the GPIO, the `InputPin` and `OutputPin` traits need to be satisfied. And as we start to implement those traits, Rust Analyzer starts to reveal the types and methods that need to be implemented in those traits to ensure compatibility.
 
-First, import crates and modules, using aliases because there are some naming conflicts. Then create our adapter type as a struct that simply contains the type we need to adapt - The `esp_hal::gpio::OutputOpenDrain` type. We need a `SensorAdapter::new()` method in order to actually use the new type:
+To achieve this, first import crates and modules, using aliases because there are some naming conflicts. Then create our adapter type as a struct that simply contains the type we need to adapt - The `esp_hal::gpio::OutputOpenDrain` type. We need a `SensorAdapter::new()` method in order to actually use the new type:
 
 #### **`dht_adapter.rs`**
 ```rs
@@ -331,7 +354,7 @@ where
 }
 ```
 
-So far, this is all pretty straightforward. Our wrapper type just contains the base type. The magic happens when the traits are implemented for the adapter. If we were to start implementing one of the traits, the LSP would kindly tell us that for the InputPin trait, our base type is missing an `Error`, and methods `fn is_high(&self) -> Result<bool, Error>`, `fn is_low...`. Curiously, our base type already has these methods, but they do not implement an Error type, and they simply return a straigh bool type, rather than a Result.
+So far, this is all pretty straightforward. Our wrapper type just contains the base type and none of the problems have been solved just yet. The magic happens when the traits are implemented for the adapter. If we were to start implementing one of the traits, the LSP would kindly tell us that for the InputPin trait, our base type is missing an `Error`, and methods `fn is_high(&self) -> Result<bool, Error>`, `fn is_low...`. Curiously, our base type already has methods with these names, but they do not implement an Error type, and they simply return a naked bool, rather than a Result.
 
 So our wrapper needs to reconcile these differences:
 
@@ -367,7 +390,7 @@ where
 }
 ```
 
-Our base type doesn't return an error so in our trait implementation, the Error type is set as `Infallible`. For our methods, we call the methods on the base type and wrap the return value in `Ok()` so the return types are compatible. Now the traits are implemented and we've created compatibility between the driver crate and the no-std crate. A similar process is required for the Delay base type and the DelayMs & DelayUs traits. With that out of the way, minor changes to `main.rs` results in a fully functioning application - Still very small, fast and without operating system.
+Our base type doesn't return an error so in our trait implementation, the `Error` type is set as `Infallible`. For our methods, we call the methods on the base type and wrap the return value in `Ok()` so the return types are compatible. Now the traits are implemented and we've created compatibility between the driver crate and the no-std crate. A similar process is required for the `Delay` base type and the `DelayMs` & `DelayUs` traits. With that out of the way, minor changes to `main.rs` results in a fully functioning application - Still very small, fast and without operating system.
 
 Next up, the connectivity needs to be tackled so that the results can be transmitted to our broker and inspected on our dashboard.
 
