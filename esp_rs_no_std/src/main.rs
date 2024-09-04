@@ -12,13 +12,28 @@ use esp_hal::{
     interrupt::{self, Priority},
     peripherals::{Interrupt, Peripherals, TIMG0},
     prelude::*,
+    rng::Rng,
     system::SystemControl,
-    timer::timg::{Timer, Timer0, TimerGroup},
+    timer::{systimer::SystemTimer, timg::{Timer, Timer0, TimerGroup}, PeriodicTimer},
 };
 use esp_println::println;
+use esp_wifi::wifi::{
+    AccessPointInfo,
+    AuthMethod,
+    ClientConfiguration,
+    Configuration,
+    utils::create_network_interface,
+    WifiError,
+    WifiStaDevice,
+};
+use esp_wifi::wifi_interface::WifiStack;
+use esp_wifi::{current_millis, initialize, EspWifiInitFor};
+use smoltcp::iface::SocketStorage;
+//use smoltcp::wire::{IpAddress, Ipv4Address};
 
 use dht_sensor::{dht22, DhtReading};
 
+mod config;
 mod dht_adapter;
 use dht_adapter::{DelayAdapter, SensorAdapter};
 
@@ -59,6 +74,74 @@ fn main() -> ! {
         DEBOUNCE_TIMER.borrow_ref_mut(cs).replace(debounce_timer);
     });
 
+    // Setup wifi
+    let wifi_timer = PeriodicTimer::new(SystemTimer::new(peripherals.SYSTIMER).alarm0.into());
+    let wifi_init = initialize(
+        EspWifiInitFor::Wifi,
+        wifi_timer,
+        Rng::new(peripherals.RNG),
+        peripherals.RADIO_CLK,
+        &clocks
+    ).unwrap();
+
+    let wifi = peripherals.WIFI;
+    let mut socket_set_entries: [SocketStorage; 3] = Default::default();
+    let (iface, device, mut controller, sockets) = create_network_interface(&wifi_init, wifi, WifiStaDevice, &mut socket_set_entries).unwrap();
+
+    let client_config = Configuration::Client(ClientConfiguration {
+        ssid: config::WIFI_SSID.try_into().unwrap(),
+        password: config::WIFI_PASS.try_into().unwrap(),
+        auth_method: AuthMethod::WPA2Personal,
+        ..Default::default()
+    });
+
+    let set_cfg_res = controller.set_configuration(&client_config);
+    println!("Attempted Wifi configuration. Result: {:?}", set_cfg_res);
+
+    controller.start().unwrap();
+    println!("Attempted to start Wifi. State: {:?}", controller.is_started());
+
+    //println!("Start Wifi scan");
+    //let scan_res: Result<(heapless::Vec<AccessPointInfo, 10>, usize), WifiError> = controller.scan_n();
+    //if let Ok((scan_res, _count)) = scan_res {
+    //    for ap in scan_res {
+    //        println!("{:?}", ap);
+    //    }
+    //}
+
+    //println!("{:?}", controller.get_capabilities());
+    println!("Wifi connected: {:?}", controller.connect());
+
+    // Wait to get connected
+    println!("Wait to get connected");
+    loop {
+        let res = controller.is_connected();
+        match res {
+            Ok(connected) => {
+                if connected {
+                    break;
+                }
+            }
+            Err(err) => {
+                println!("{:?}", err);
+                loop {}
+            }
+        }
+    }
+    println!("{:?}", controller.is_connected());
+
+    // Wait for getting an ip address
+    let wifi_stack = WifiStack::new(iface, device, sockets, current_millis);
+    println!("Wait to get an ip address");
+    loop {
+        wifi_stack.work();
+
+        if wifi_stack.is_iface_up() {
+            println!("Got ip: {:?}", wifi_stack.get_ip_info());
+            break;
+        }
+    }
+
     // Read and log sensor results periodically
     let delay = Delay::new(&clocks);
     let mut delay_adapter = DelayAdapter::new(&clocks);
@@ -73,7 +156,7 @@ fn main() -> ! {
                 .is_high();
         });
 
-        // Read DHT22 sensor
+      // Read DHT22 sensor
         match dht22::Reading::read(&mut delay_adapter, &mut sensor_pin) {
             Ok(read) => {
                 println!("Temperature: {}, Humidity: {}", read.temperature, read.relative_humidity);

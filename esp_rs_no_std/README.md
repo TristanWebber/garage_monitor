@@ -172,7 +172,7 @@ fn handler() {
 
 In similar fashion to the previous project, things escalated quickly because a mutable reference needs to be shared. This time, a global Mutex<RefCell<Option<_>>> is the data structure of choice because the interrupt handler cannot take any arguments. Creating this globally means it is declared before the GPIO has been configured. To borrow the reference within the Mutex<RefCell<>> a critical section is required. Setting this up has doubled the amount of code, but allows us to use the GPIO in both our main function and the interrupt.
 
-Notice that there is still no sign of an operating system. The GPIO interrupt is a hardware interrupt, so when it is triggered, it sets a flag for the CPU, causing the CPU to change context to a set of instructions in a different area of memory to the normal instructions. This allows this example to have an asynchronous 'task' without needing the overhead of an operating system, and this results in a very small and efficient binary that performs the task we have programmed, and nothing more. If you are keen to validate this, you can look at the assembly:
+Notice that there is still no sign of an operating system. The GPIO interrupt is a hardware interrupt, so when it is triggered, it sets a flag for the CPU, causing the CPU to change context to a set of instructions in a different area of storage to the normal instructions. This allows the code to have an asynchronous 'task' without needing the overhead of an operating system, and this results in a very small and efficient binary that performs the task we have programmed, and nothing more. If you are keen to validate this, you can look at the assembly:
 
 ```bash
 # Install the relevant tools
@@ -194,7 +194,7 @@ cargo objdump --bin esp_rs_no_std --release -- --disassemble --no-show-raw-insn 
 // ---snip---
 ```
 
-First off, all of the interrupts are in the `.rwtext`, segmented away from the rest of the code. Secondly, none of the assembly has a jump to any of the interrupts, so we have verified that if these are called, it is by the hardware, not the software. So this shows us that whenever a hardware interrupt occurs, the application jumps to the `handle_interrupts` function with two arguments (a1, a0) and iterates through any configured interrupts then applies any handlers.
+First off, all of the interrupts are in the `.rwtext`, segmented away from the rest of the code. Secondly, none of the assembly has a jump to any of the interrupts, so we have verified that if these are called, it is by the hardware, not the software. So this shows us that whenever a hardware interrupt occurs, the CPU jumps to the `handle_interrupts` function with two arguments (a0 - the interrupt number, a1 - the callee context) and iterates through any configured interrupts then applies any handlers. The callee context is a copy of the callee's registers, therefore allowing the CPU to switch context between the callee's stack and the interrupt.
 
 ### Add a debounce timer
 The extremely low latency of the gpio interrupt means that a debounce will be needed to prevent noisy data that occurs from multiple interrupt triggers from the same event. Like the previous examples, a timer can be used. Without an OS, we can again rely on hardware features and user a timer callback. Let's reimagine the program flow:
@@ -396,7 +396,85 @@ Next up, the connectivity needs to be tackled so that the results can be transmi
 
 ## Connectivity
 
-TODO - talk about no-std approach to wifi, implement wifi, implement mqtt, embassy
+### Wifi
+Up until now, talk of the no-std approach has been all about avoiding an underlying operating system and avoiding the use of closed-source binaries by others. Moving to the networking part of the project, this narrative changes a little - There is no currently viable method to avoid closed-source binaries to implement the wifi stack, and Espressif does not publish details on the ESP32 radio registers so that is unlikely to change anytime soon. None of this changes our approach to the project, but it is worth noting because for some, the allure of no-std is the perception of 'baremetal'.
+
+We don't have total control or transparency of the wifi stack down to the register level, but we still have the ability to avoid the use of FreeRTOS to manage the timing and events of the wifi stack. For this project, we use the `esp-wifi` crate, and this has some fundamental similarities to everything else we have done to date for this no-std project - the underlying control is via interrupts (implemented by others!).
+
+To get started requires some verbose changes to `Cargo.toml` and `.cargo/config.toml`. Similarly, our application code requires a bevy of interfaces to be brought into scope. These are predominantly from the `esp-wifi` crate, with others via the `smoltcp` for the TCP sockets.
+
+The basic structure of the Wifi has similarities to the ESP-IDF way of doing things (no surprises there, since as previously noted, we rely on Espressif's compiled Wifi code for the radio part). However, our application code needs to be more verbose than the ESP-IDF and std approaches:
+
+```rs
+// ---snip---
+fn main() -> ! {
+    // ---snip---
+    // Initialise wifi tasks and event handling. Where ESP-IDF provides a FreeRTOS event loop, esp-wifi implements this manually
+    let wifi_timer = PeriodicTimer::new(SystemTimer::new(peripherals.SYSTIMER).alarm0.into());
+    let wifi_init = initialize(
+        EspWifiInitFor::Wifi,
+        wifi_timer,
+        Rng::new(peripherals.RNG),
+        peripherals.RADIO_CLK,
+        &clocks
+    ).unwrap();
+
+    // Create the network interface. Follows a similar pattern to ESP-IDF
+    let wifi = peripherals.WIFI;
+    let mut socket_set_entries: [SocketStorage; 3] = Default::default();
+    let (iface, device, mut controller, sockets) = create_network_interface(&wifi_init, wifi, WifiStaDevice, &mut socket_set_entries).unwrap();
+
+    // Configures the client, almost identically to ESP-IDF approach
+    let client_config = Configuration::Client(ClientConfiguration {
+        ssid: config::WIFI_SSID.try_into().unwrap(),
+        password: config::WIFI_PASS.try_into().unwrap(),
+        auth_method: AuthMethod::WPA2Personal,
+        ..Default::default()
+    });
+
+    let set_cfg_res = controller.set_configuration(&client_config);
+    controller.start().unwrap();
+    println!("Attempted to start Wifi. State: {:?}", controller.is_started());
+
+    println!("{:?}", controller.get_capabilities());
+    println!("Wifi connected: {:?}", controller.connect());
+
+    // Manually handling wifi events. This contrasts with the callback approach used in ESP-IDF
+    println!("Wait to get connected");
+    loop {
+        let res = controller.is_connected();
+        match res {
+            Ok(connected) => {
+                if connected {
+                    break;
+                }
+            }
+            Err(err) => {
+                println!("{:?}", err);
+                loop {}
+            }
+        }
+    }
+
+    // Manually handling IP events. This contrasts with the callback approach used in ESP-IDF
+    let wifi_stack = WifiStack::new(iface, device, sockets, current_millis);
+    println!("Wait to get an ip address");
+    loop {
+        wifi_stack.work();
+
+        if wifi_stack.is_iface_up() {
+            println!("Got ip: {:?}", wifi_stack.get_ip_info());
+            break;
+        }
+    }
+    // ---snip---
+}
+// ---snip---
+```
+
+Here, we see that implementing the Wifi connection requires different code. One of the most notable differences is the deviation from callback-based event handling for wifi and ip events. This means that the code has similarities to the Arduino code in the very first example - To make this robust, we will need to make a mental note to actually check connection state and manually handle any states we deem problematic to program flow.
+
+TODO - implement mqtt, talk about 8883, discuss embassy
 
 ## The config file
 
