@@ -1,7 +1,11 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
+use core::{
+    cell::RefCell,
+    fmt::Write,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use critical_section::Mutex;
 
 use esp_backtrace as _;
@@ -18,18 +22,19 @@ use esp_hal::{
 };
 use esp_println::println;
 use esp_wifi::wifi::{
-    AccessPointInfo,
     AuthMethod,
     ClientConfiguration,
     Configuration,
     utils::create_network_interface,
-    WifiError,
+//    WifiError,
     WifiStaDevice,
+    WifiState,
 };
 use esp_wifi::wifi_interface::WifiStack;
 use esp_wifi::{current_millis, initialize, EspWifiInitFor};
+use heapless::String;
 use smoltcp::iface::SocketStorage;
-//use smoltcp::wire::{IpAddress, Ipv4Address};
+use smoltcp::wire::{IpAddress, Ipv4Address};
 
 use dht_sensor::{dht22, DhtReading};
 
@@ -37,8 +42,12 @@ mod config;
 mod dht_adapter;
 use dht_adapter::{DelayAdapter, SensorAdapter};
 
+mod mqtt_client;
+use mqtt_client::MqttClient;
+
 static DOOR_SWITCH: Mutex<RefCell<Option<Input<Gpio3>>>> = Mutex::new(RefCell::new(None));
 static DEBOUNCE_TIMER: Mutex<RefCell<Option<Timer<Timer0<TIMG0>, esp_hal::Blocking>>>> = Mutex::new(RefCell::new(None));
+static SWITCH_UPDATED: AtomicBool = AtomicBool::new(false);
 
 #[entry]
 fn main() -> ! {
@@ -101,15 +110,6 @@ fn main() -> ! {
     controller.start().unwrap();
     println!("Attempted to start Wifi. State: {:?}", controller.is_started());
 
-    //println!("Start Wifi scan");
-    //let scan_res: Result<(heapless::Vec<AccessPointInfo, 10>, usize), WifiError> = controller.scan_n();
-    //if let Ok((scan_res, _count)) = scan_res {
-    //    for ap in scan_res {
-    //        println!("{:?}", ap);
-    //    }
-    //}
-
-    //println!("{:?}", controller.get_capabilities());
     println!("Wifi connected: {:?}", controller.connect());
 
     // Wait to get connected
@@ -142,10 +142,37 @@ fn main() -> ! {
         }
     }
 
-    // Read and log sensor results periodically
+    // Get network socket and connect mqtt client
+    let mut rx_buffer = [0u8; 1536];
+    let mut tx_buffer = [0u8; 1536];
+    let socket = wifi_stack.get_socket(&mut rx_buffer, &mut tx_buffer);
+    let mut mqtt_client = MqttClient::new("esp_no_std", socket, current_millis);
+    let broker_addr = IpAddress::Ipv4(Ipv4Address::from_bytes(&config::BROKER_IP_ADDRESS));
+
     let delay = Delay::new(&clocks);
     let mut delay_adapter = DelayAdapter::new(&clocks);
+
+    // Main application loop
     loop {
+        // Set time for next publish based on entry to this loop
+        let wait_until = current_millis() + (config::PUBLISH_INTERVAL_S as u64 * 1000);
+
+        // Verify Wifi is still connected
+        let wifi_state = esp_wifi::wifi::get_wifi_state();
+        println!("Wifi state: {wifi_state:?}");
+        match wifi_state {
+            WifiState::StaConnected => {},
+            _ => controller.connect().unwrap(),
+        }
+
+        // Connect to MQTT broker
+        println!("Attempting to connect to MQTT broker");
+        let conn_err = mqtt_client.connect(broker_addr, config::BROKER_PORT, 15, Some(config::BROKER_USER), Some(config::BROKER_PASS.as_bytes()));
+        match conn_err {
+            Ok(()) => println!("Connected to MQTT broker"),
+            Err(_) => println!("MQTT Connection error"),
+        }
+
         // Read door state
         let mut door_state = false;
         critical_section::with(|cs| {
@@ -156,19 +183,80 @@ fn main() -> ! {
                 .is_high();
         });
 
-      // Read DHT22 sensor
+        // Publish door state
+        println!("Door is closed?: {}", door_state);
+        let mut door_string: String<32> = String::new();
+        write!(door_string, "{}", door_state).unwrap();
+        let pub_err = mqtt_client.publish(config::DOOR_TOPIC, door_string.as_bytes(), mqttrust::QoS::AtMostOnce);
+        match pub_err {
+            Ok(()) => println!("Publish success"),
+            Err(_) => println!("Publish error"),
+        }
+
+        // Read and publish DHT22 sensor
         match dht22::Reading::read(&mut delay_adapter, &mut sensor_pin) {
             Ok(read) => {
                 println!("Temperature: {}, Humidity: {}", read.temperature, read.relative_humidity);
+                let mut temperature_string: String<32> = String::new();
+                write!(temperature_string, "{:.2}", read.temperature).unwrap();
+                let pub_err = mqtt_client.publish(config::TEMP_TOPIC, temperature_string.as_bytes(), mqttrust::QoS::AtMostOnce);
+                match pub_err {
+                    Ok(()) => println!("Publish success"),
+                    Err(_) => println!("Publish error"),
+                }
+                let mut humidity_string: String<32> = String::new();
+                write!(humidity_string, "{:.2}", read.relative_humidity).unwrap();
+                let pub_err = mqtt_client.publish(config::HUMI_TOPIC, humidity_string.as_bytes(), mqttrust::QoS::AtMostOnce);
+                match pub_err {
+                    Ok(()) => println!("Publish success"),
+                    Err(_) => println!("Publish error"),
+                }
             },
             Err(e) => {
                 println!("Failed to read DHT sensor. Reason: {:?}", e);
             },
         }
 
-        println!("Door is closed?: {}", door_state);
-        delay.delay_millis(300_000);
+        // Busy loop
+        while current_millis() < wait_until {
+
+            // Check if door has been updated
+            let mut updated = false;
+            let mut door_state = false;
+            critical_section::with(|cs| {
+                updated = SWITCH_UPDATED.load(Ordering::SeqCst);
+                if updated {
+                    SWITCH_UPDATED.store(false, Ordering::SeqCst);
+                    door_state = DOOR_SWITCH
+                        .borrow_ref(cs)
+                        .as_ref()
+                        .unwrap()
+                        .is_high();
+                }
+            });
+
+            // Publish door state if update was observed
+            if updated {
+                let mut door_string: String<32> = String::new();
+                write!(door_string, "{}", door_state).unwrap();
+                let pub_err = mqtt_client.publish(config::DOOR_TOPIC, door_string.as_bytes(), mqttrust::QoS::AtMostOnce);
+                match pub_err {
+                    Ok(()) => println!("Publish success"),
+                    Err(_) => println!("Publish error"),
+                }
+            } else {
+                mqtt_client.poll();
+            }
+            delay.delay_millis(1000);
+        }
     }
+
+    // Read and log sensor results periodically
+    // Application code START
+    //loop {
+    //    delay.delay_millis(300_000);
+    //}
+    // Application code END
 }
 
 // GPIO Interrupt handler unlistens, clears interrupt and starts debounce timer
@@ -184,7 +272,7 @@ fn gpio_int_handler() {
         // Start debounce timer
         let mut debounce_timer = DEBOUNCE_TIMER.borrow_ref_mut(cs);
         let debounce_timer = debounce_timer.as_mut().unwrap();
-        debounce_timer.load_value(50u64.millis()).unwrap();
+        debounce_timer.load_value(config::DEBOUNCE_MS.millis()).unwrap();
         debounce_timer.start();
     });
 }
@@ -202,6 +290,7 @@ fn timer_handler() {
         // Read the door GPIO state
         let mut door_switch = DOOR_SWITCH.borrow_ref_mut(cs);
         let door_switch = door_switch.as_mut().unwrap();
+        SWITCH_UPDATED.store(true, Ordering::SeqCst);
         println!("Interrupt triggered. Door is closed?: {}", door_switch.is_high());
 
         // Relisten for GPIO interrupts

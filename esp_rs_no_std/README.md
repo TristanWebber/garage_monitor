@@ -170,7 +170,7 @@ fn handler() {
 }
 ```
 
-In similar fashion to the previous project, things escalated quickly because a mutable reference needs to be shared. This time, a global Mutex<RefCell<Option<_>>> is the data structure of choice because the interrupt handler cannot take any arguments. Creating this globally means it is declared before the GPIO has been configured. To borrow the reference within the Mutex<RefCell<>> a critical section is required. Setting this up has doubled the amount of code, but allows us to use the GPIO in both our main function and the interrupt.
+In similar fashion to the previous project, things escalated quickly because a mutable reference needs to be shared. This time, a global `Mutex<RefCell<Option<_>>>` is the data structure of choice because the interrupt handler cannot take any arguments. Creating this globally means it is declared before the GPIO has been configured. To borrow the reference within the Mutex<RefCell<>> a critical section is required. Setting this up has doubled the amount of code, but allows us to use the GPIO in both our main function and the interrupt.
 
 Notice that there is still no sign of an operating system. The GPIO interrupt is a hardware interrupt, so when it is triggered, it sets a flag for the CPU, causing the CPU to change context to a set of instructions in a different area of storage to the normal instructions. This allows the code to have an asynchronous 'task' without needing the overhead of an operating system, and this results in a very small and efficient binary that performs the task we have programmed, and nothing more. If you are keen to validate this, you can look at the assembly:
 
@@ -467,14 +467,156 @@ fn main() -> ! {
             break;
         }
     }
+
+    let mut rx_buffer = [0u8; 1536];
+    let mut tx_buffer = [0u8; 1536];
+    let mut socket = wifi_stack.get_socket(&mut rx_buffer, &mut tx_buffer);
     // ---snip---
 }
 // ---snip---
 ```
 
-Here, we see that implementing the Wifi connection requires different code. One of the most notable differences is the deviation from callback-based event handling for wifi and ip events. This means that the code has similarities to the Arduino code in the very first example - To make this robust, we will need to make a mental note to actually check connection state and manually handle any states we deem problematic to program flow.
+Here, we see that implementing the Wifi connection requires different code. One of the most notable differences is the deviation from callback-based event handling for wifi and ip events. This means that the code has similarities to the Arduino code in the very first example - To make this robust, we will need to make a mental note to actually check connection state and manually handle any states we deem problematic to program flow. This can be achieved by matching on the result of the `esp_wifi::wifi::get_wifi_state()` method and reconnecting the controller in the event of a disconnection.
 
-TODO - implement mqtt, talk about 8883, discuss embassy
+### MQTT
+
+Now that we have our network socket, it's time to implement the network protocol. There are a few MQTT crates available, however much like our earlier experience gluing the DHT22 driver into our application code, none of it comes for free at the current stage of ESP32 no_std maturity. Given that we don't actually need a lot of the features MQTT has to offer, let's just implement the bits we want by hand.
+
+At the conceptual level, the objective is to:
+- Create a MqttClient struct
+- Implement public functions:
+    - `new`: takes our network socket and some configuration values as arguments
+    - `connect`: connects our client to a cloud broker
+    - `publish`: publishes a message to a topic on the broker
+- Implement any private helper methods that may be necessary
+
+As a first pass, our struct will have a handful of fields to facilitate connection and store some data about the connection. The user will set the `client_id`, pass a WifiStaDevice socket and provide a function to allow the mqtt module to keep time. The rest of the fields will be set by the `new()` function:
+
+```rs
+pub struct MqttClient<'a> {
+    client_id: &'a str,
+    socket: esp_wifi::wifi_interface::Socket<'a, 'a,  WifiStaDevice>,
+    connection_state: bool,
+    recv_buffer: [u8; 512],
+    recv_index: usize,
+    keep_alive_secs: Option<u16>,
+    last_sent_millis: u64,
+    current_millis_fn: fn() -> u64,
+```
+
+To connect to the MQTT broker from first principles, all we need to do is write a header and packet complaint with the MQTT specification over the socket and listen for a ConAck packet from the broker. Let's use the mqttrust crate to create these packets for us:
+
+#### **`Cargo.toml`**
+```toml
+# ---snip---
+[dependencies]
+mqttrust = "0.6.0"
+# ---snip---
+```
+
+
+#### **`mqtt_client.rs`**
+```rs
+// ---snip---
+pub fn connect(
+    &mut self,
+    broker_addr: IpAddress,
+    broker_port: u16,
+    keep_alive_secs: u16,
+    username: Option<&'a str>,
+    password: Option<&'a [u8]>,
+) -> Result<(), MqttError> {
+    // ---snip---
+    // Make sure wifi is connected
+    // Ensure socket is not already open
+
+    self.socket.open(broker_addr, broker_port).unwrap();
+
+    let conn_pkt = Packet::Connect(Connect {
+        protocol: Protocol::MQTT311,
+        keep_alive: keep_alive_secs,
+        client_id: self.client_id,
+        clean_session: true,
+        last_will: None,
+        username,
+        password,
+    });
+
+    self.send(conn_pkt)?;
+
+    // Read from socket to receive ConAck packet from broker
+}
+// ---snip---
+```
+
+We're letting the mqttrust crate do the heavy lifting to make sure all the appropriate bits are set so all we need to do for this application is to send the packet and handle the connection.
+
+Similarly for the publish and poll functions, all we're doing is providing a wrapper around the mqttrust crate to manage the IO. My approach to error handling with this module is rough and ready but if I was doing this for production I would be far more careful about enumerating the error types and handling them all. Another thing to be aware of is that in this example, port 1883 is being used rather than the 8883 TLS port. This should be moderately easy to change by creating a TLS session over the socket using the `esp_mbedtls` crate and certificates with very similar ergonomics to the previous projects. Put it in the TODO basket for later!
+
+Finally, for this version of the project, the read, send and connection management is handled in the `main.rs` file in an Arduino style superloop.
+
+```rs
+// ---snip---
+static SWITCH_UPDATED: AtomicBool = AtomicBool::new(false);
+// ---snip---
+
+fn main() -> ! {
+    // ---snip---
+    loop {
+        // Set time for next publish based on entry to this loop
+        let wait_until = current_millis() + (config::PUBLISH_INTERVAL_S as u64 * 1000);
+
+        // Verify Wifi is still connected
+
+        // Connect to MQTT broker
+        println!("Attempting to connect to MQTT broker");
+        let conn_err = mqtt_client.connect(broker_addr, config::BROKER_PORT, 15, Some(config::BROKER_USER), Some(config::BROKER_PASS.as_bytes()));
+        // Handle errors
+
+        // Read door state
+        // Publish door state
+        let mut door_string: String<32> = String::new();
+        write!(door_string, "{}", door_state).unwrap();
+        let pub_err = mqtt_client.publish(config::DOOR_TOPIC, door_string.as_bytes(), mqttrust::QoS::AtMostOnce);
+        match pub_err {
+            Ok(()) => println!("Publish success"),
+            Err(_) => println!("Publish error"),
+        }
+
+        // Read and publish DHT22 sensor
+
+        // Busy loop
+        while current_millis() < wait_until {
+
+            // Check if door has been updated
+            let mut updated = false;
+            let mut door_state = false;
+            critical_section::with(|cs| {
+                updated = SWITCH_UPDATED.load(Ordering::SeqCst);
+                if updated {
+                    SWITCH_UPDATED.store(false, Ordering::SeqCst);
+                    // Read door state
+                }
+            });
+
+            if updated {
+                // Publish door state
+            } else {
+                mqtt_client.poll();
+            }
+            delay.delay_millis(1000);
+        }
+    }
+}
+
+// Interrupt now also updates state of AtomicBool to signal to main loop if the door state has changed
+```
+
+The final discussion point is the use of an AtomicBool to store whether the door state has been updated by the interrupt. The AtomicBool is able to be shared safely between threads and we use this to flag to the main loop that there is a need to send an uncheduled message about the door state.
+
+Compiling this still results in a small binary (less than 10% of available space of the 4MB Seeed Studio XIAO ESP32C3 board). Adding mbedtls adds a reasonable amount of size to this, but it is still demonstrable that the no_std approach results in a smaller binary, making it appropriate for projects with storage constraints.
+
+A final note on the approach taken for this particular project - This configuration that mainly depends on a single loop to manage events and rudimentary state machines to decide on what branch to take is not the only approach available to us in no_std. One of the interesting things in the Rust embedded community is the adoption of async/await methods of concurrency, and this often proves to be far more ergonomic compared to this approach of using raw interrupts etc. In particular, `embassy` is probably the best way to manage concurrency for ESP32 no_std projects. I will likely do a refactored version of this project based on embassy at a later date because this example is a way things 'can' be done, as opposed to how they 'should' be done.
 
 ## The config file
 
@@ -502,4 +644,8 @@ cargo run --release
 
 ## Observations and Next Steps
 
-TODO
+Clearly the no_std Rust project is the most complicated so far. Most of the complication comes from the fact that the space is relatively immature, APIs are not always ergonomic and definitely not always stable. Just because a crate exists, doesn't mean it is ready and interoperable for a particular use case, and choosing to do things without an underlying operating system results in more code for the same or lesser outcome compared to simple FreeRTOS style tasks.
+
+Regardless, having the ability to build a project from scratch with a decent open source community behind it is a great option to have. As time goes on, the community is becoming stronger, and some of those rough edges are starting to smooth out into more accepted 'styles'. For example, embassy and async/await approaches to concurrency have been embraced, and this will slowly result in a better defined 'style' to no_std coding in Rust.
+
+The next and final (for now) iteration of this project will be a bare-metal C project where we will interact with ESP32 registers directly and implement our own rudimentary operating system.

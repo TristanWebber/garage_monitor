@@ -21,6 +21,7 @@ esp-println = { version = "0.10.0", features = ["esp32c3"] }
 esp-wifi = { version = "0.7.1", features = [
     "esp32c3",
     "phy-enable-usb",
+    "tcp",
     "utils",
     "wifi-default"
 ] }
@@ -37,6 +38,7 @@ smoltcp = { version = "0.11.0", default-features = false, features = [
     "socket-raw",
     "socket-dhcpv4",
 ] }
+mqttrust = "0.6.0"
 
 [profile.dev]
 # Rust debug is too slow.
