@@ -476,11 +476,11 @@ fn main() -> ! {
 // ---snip---
 ```
 
-Here, we see that implementing the Wifi connection requires different code. One of the most notable differences is the deviation from callback-based event handling for wifi and ip events. This means that the code has similarities to the Arduino code in the very first example - To make this robust, we will need to make a mental note to actually check connection state and manually handle any states we deem problematic to program flow. This can be achieved by matching on the result of the `esp_wifi::wifi::get_wifi_state()` method and reconnecting the controller in the event of a disconnection.
+One of the most notable differences from previous implementations is the deviation from callback-based event handling for wifi and ip events. This means that the code has similarities to the Arduino code in the very first example - To make this robust, we will need to make a mental note to actually check connection state and manually handle any states we deem problematic to program flow. This can be achieved by matching on the result of the `esp_wifi::wifi::get_wifi_state()` method and reconnecting the controller in the event of a disconnection.
 
 ### MQTT
 
-Now that we have our network socket, it's time to implement the network protocol. There are a few MQTT crates available, however much like our earlier experience gluing the DHT22 driver into our application code, none of it comes for free at the current stage of ESP32 no_std maturity. Given that we don't actually need a lot of the features MQTT has to offer, let's just implement the bits we want by hand.
+Now that we have our network socket, it's time to implement the network protocol. There are a few MQTT crates available, however much like our earlier experience gluing the DHT22 driver into our application code, none of it comes for free at the current stage of ESP32 no_std maturity. Given that we don't actually need a lot of the features MQTT has to offer, let's just implement the bits we want by hand. This is influenced by [this](https://github.com/bjoernQ/esp32-rust-nostd-temperature-logger) project.
 
 At the conceptual level, the objective is to:
 - Create a MqttClient struct
@@ -504,7 +504,7 @@ pub struct MqttClient<'a> {
     current_millis_fn: fn() -> u64,
 ```
 
-To connect to the MQTT broker from first principles, all we need to do is write a header and packet complaint with the MQTT specification over the socket and listen for a ConAck packet from the broker. Let's use the mqttrust crate to create these packets for us:
+To connect to the MQTT broker from first principles, all we need to do is write a header and packet compliant with the MQTT specification over the socket and listen for a ConAck packet from the broker. Let's use the mqttrust crate to create these packets for us:
 
 #### **`Cargo.toml`**
 ```toml
@@ -612,11 +612,11 @@ fn main() -> ! {
 // Interrupt now also updates state of AtomicBool to signal to main loop if the door state has changed
 ```
 
-The final discussion point is the use of an AtomicBool to store whether the door state has been updated by the interrupt. The AtomicBool is able to be shared safely between threads and we use this to flag to the main loop that there is a need to send an uncheduled message about the door state.
+The final discussion point is the use of an `AtomicBool` to store whether the door state has been updated by the interrupt. The AtomicBool is able to be shared safely between threads and we use this to flag to the main loop that there is a need to send an uncheduled message about the door state. Using this approach, the busy loop spends most of the time doing nothing unless this simplistic 'state machine' signals that there is other work to do.
 
-Compiling this still results in a small binary (less than 10% of available space of the 4MB Seeed Studio XIAO ESP32C3 board). Adding mbedtls adds a reasonable amount of size to this, but it is still demonstrable that the no_std approach results in a smaller binary, making it appropriate for projects with storage constraints.
+With the telemetry code now complete, compiling the project still results in a small binary (less than 10% of available space of the 4MB Seeed Studio XIAO ESP32C3 board). Adding mbedtls adds a reasonable amount of size to this, but it is still demonstrable that the no_std approach results in a smaller binary, making it appropriate for projects with storage constraints.
 
-A final note on the approach taken for this particular project - This configuration that mainly depends on a single loop to manage events and rudimentary state machines to decide on what branch to take is not the only approach available to us in no_std. One of the interesting things in the Rust embedded community is the adoption of async/await methods of concurrency, and this often proves to be far more ergonomic compared to this approach of using raw interrupts etc. In particular, `embassy` is probably the best way to manage concurrency for ESP32 no_std projects. I will likely do a refactored version of this project based on embassy at a later date because this example is a way things 'can' be done, as opposed to how they 'should' be done.
+A final note on the approach taken for this particular project - this is not the only approach available to us in no_std. One of the interesting things in the Rust embedded community is the adoption of async/await methods of concurrency, and this often proves to be far more ergonomic compared to this approach of using raw interrupts, state machines and big branching loop etc. In particular, `embassy` is probably the best way to manage concurrency for ESP32 no_std projects. I will likely do a refactored version of this project based on embassy at a later date because this example is a way things 'can' be done, as opposed to how they 'should' be done.
 
 ## The config file
 
