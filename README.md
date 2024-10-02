@@ -56,5 +56,5 @@ The subprojects are as follows, presented in roughly increasing order of impleme
 2. [Using ESP-IDF](https://github.com/TristanWebber/garage_monitor/tree/main/esp_idf)
 3. [Using ESP-IDF and C++](https://github.com/TristanWebber/garage_monitor/tree/main/esp_cpp)
 4. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_std) and the `std` crate
-5. Using Rust and the `no-std` crate - COMING SOON
-6. Using baremetal C to implement just the I/O features - COMING LATER
+5. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_no_std) and the `no-std` crate
+6. Using baremetal C to implement just the I/O features - COMING SOON
