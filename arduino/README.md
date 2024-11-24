@@ -13,7 +13,7 @@
 
 ## Introduction
 
-This first example of the garage monitor leverages relatively high level abstractions and libraries. Using this approach, it's possible to use very little code to achieve the desired functionality. It intentionally avoids lower level details where possible so we make a number of comprimises which will be discussed in [Observations](#observations-and-next-steps).
+This first example of the garage monitor leverages relatively high level abstractions and libraries. Using this approach, it's possible to use very little code to achieve the desired functionality. It intentionally avoids lower level details where possible so we make a number of compromises which will be discussed in [Observations](#observations-and-next-steps).
 
 This iteration uses Arduino - a framework designed for educational purposes that has foud itself broadly used in prototyping and hobbyist domains. A quick refresher on Arduino - Every Arduino project will call `setup()` and `loop()` functions. For the purposes of this first project, how they are called and what they actually are will be ignored. We'll just pretend it is some magic we can rely on and that allows us to rapidly build a basic project.
 

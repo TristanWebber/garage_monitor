@@ -52,9 +52,9 @@ To subscribe to and visualise our data, the project will use [Datacake](https://
 ## Jump In
 
 The subprojects are as follows, presented in roughly increasing order of implementation complexity:
-1. [Using Arduino framework](https://github.com/TristanWebber/garage_monitor/tree/main/arduino)
-2. [Using ESP-IDF](https://github.com/TristanWebber/garage_monitor/tree/main/esp_idf)
-3. [Using ESP-IDF and C++](https://github.com/TristanWebber/garage_monitor/tree/main/esp_cpp)
-4. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_std) and the `std` crate
-5. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_no_std) and the `no-std` crate
+1. [Using Arduino framework](https://github.com/TristanWebber/garage_monitor/tree/main/arduino) to create a synchronous and straightforward application
+2. [Using ESP-IDF](https://github.com/TristanWebber/garage_monitor/tree/main/esp_idf) to leverage FreeRTOS tasks for concurrency, and use the Espressif APIs
+3. [Using ESP-IDF and C++](https://github.com/TristanWebber/garage_monitor/tree/main/esp_cpp) to explore a higher level language, and create a driver for the environmental sensor
+4. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_std) and the `std` crate to investigate the benefits and tradeoffs of Rust, while maintaining the familiarity of ESP-IDF interfaces
+5. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_no_std) and the `no-std` crate to investigate baremetal programming on the ESP32
 6. Using baremetal C to implement just the I/O features - COMING SOON
