@@ -56,14 +56,15 @@ To follow along, it will also be handy to have a copy of the [ESP32-C3 Technical
 
 ## Blinky base example
 
-Our minimalistic example will be Blinky. This allows the proof of concept to ignore logging to UART (which would be required for hello world). We will make a LED blink and use that as proof that our code has been flashed on to the device, has been loaded by the first stage bootloader, and operates correctly. We will work towards making the following code work:
+Our minimalistic example will be Blinky. The starting point is heavily inspired by [mdk](https://github.com/cpq/mdk) - the repo that convinced me this was an idea worth playing with. The use of a GPIO output allows the proof of concept to demonstrate our code is actually running, but avoiding having to log to UART and its implications of implemented newlib functions (which would be required for hello world). We will make a LED blink and use that as proof that our code has been flashed on to the device, has been loaded by the first stage bootloader, and operates correctly. We will work towards making the following code work:
 
 
 #### **`main.c`**
 ```C
 #include "sdk.h"
 
-#define LED_PIN GPIO_NUM_3
+#define LED_PIN GPIO_NUM_2
+
 int led_state = 0;
 
 int main(void) {
@@ -86,9 +87,9 @@ In order to get to the point where this can work, there are some steps that need
 
 ## Second stage bootloader
 
-The first hurdle to getting our blinky on to the chip and running will be to get the CPU to acknowledge its existence and load the first instructions. We can familiarise ourselves, at a high level with the ESP32C3 boot process by checking the [documentation](https://docs.espressif.com/projects/esp-idf/en/v5.3.1/esp32c3/api-guides/startup.html). Here we see that a first stage bootloader is located on the ROM of the chip and cannot be modified. The first stage bootloader loads the second-stage bootloader image to RAM (IRAM & DRAM) from flash offset 0x0.
+The first hurdle to getting our blinky code on to the chip and running will be to get the CPU to acknowledge its existence and load the first instructions. We can familiarise ourselves, at a high level with the ESP32C3 boot process by checking the [documentation](https://docs.espressif.com/projects/esp-idf/en/v5.3.1/esp32c3/api-guides/startup.html). Here we see that a first stage bootloader is located on the ROM of the chip and cannot be modified. `The first stage bootloader loads the second-stage bootloader image to RAM (IRAM & DRAM) from flash offset 0x0.`
 
-This means that for our example, there's very little that needs to be done to facilitate our own main.c being loaded on to the chip. The bare minimum that needs to be done is to point the bootloader to our main function. We *should* do a bunch of other checks and tasks before loading our user code, but let's just forget about most of that for now because it won't stop our project from working. The only other thing we will tackle intially will be to disable the watchdog timers (TRM 12) to prevent our chip from getting stuck in a reset loop. We would ideally be implementing code to feed the watchdog timers but that's not part of our objective just yet. Our first pass at a second stage bootloader will look like this, borrowing the function name from ESP-IDF:
+This means that for our example, there's very little that needs to be done to facilitate our own `main.c` being loaded on to the chip. The bare minimum that needs to be done is to point the bootloader to our main function. We *should* do a bunch of other checks and tasks before loading our user code, but let's just forget about most of that for now because it won't stop our project from working. The only other thing we will tackle intially will be to disable the watchdog timers (TRM 12) to prevent our chip from getting stuck in a reset loop. We would ideally be implementing code to feed the watchdog timers but that's not part of our objective just yet. Our first pass at a second stage bootloader will look like this, borrowing the function name from ESP-IDF:
 
 #### **`bootloader.c`**
 ```C
@@ -99,17 +100,18 @@ extern int main(void);
 void __attribute__((noreturn)) call_start_cpu0(void) {
     disable_wdt();
     main();
+    for(;;) {}
 }
 ```
 
-And now we get in to our first low level operations to disable the watchdog timers! Looking at Section 12 of the Technical Reference Manual, there's all the detail we need in order to prevent the watchdog timers from intervening in our application:
+And now we get in to our first low level operations to disable the watchdog timers. Looking at Section 12 of the Technical Reference Manual, there's all the detail we need in order to prevent the watchdog timers from intervening in our application:
 - There are three digital and one analog watchdogs for us to disable (TRM Figure 12-1). To be safe, let's disable all of them.
 - Settings can be modified by writing to bits in the Timer Group and RTC registers (TRM 12.5)
 - Write protection is implemented to prevent inadvertent modification of WDT configurations (TRM 12.2.2.3)
 
 This means that we will be interacting with registers - as low as we can go. First, let's assume we'll be doing this a lot, and set some macros to make life easier. From the docs, we know the registers are 32 bit wide, and that we will need to read and write individual bits so we define a BIT macro and a register read/write macro. Also from the documentation, we know that registers for certain peripherals are accessed via base addresses, and defined in the technical reference manual by their offsets, so let's name those base addresses while we're there.
 
-#### **`sdk.c`**
+#### **`sdk.h`**
 ```C
 #define BIT(x) ((uint32_t) 1U << (x))
 #define REG_RW(base, offset) (*(volatile uint32_t *) ((base) + (offset)))
@@ -121,13 +123,13 @@ This means that we will be interacting with registers - as low as we can go. Fir
 
 Following the approach described in the docs, we'll disable write protection, set the bits we need to get our desired behaviour, and re-enable write protection:
 
-#### **`sdk.c`**
+#### **`sdk.h`**
 ```C
 static inline void wdt_disable(void) {
     // Disable RTC WDT (TRM 12.2.2.3)
     REG_RW(LOW_POWER_MGT, 0xA8) = 0x50D83AA1;    // Disable write protection
     REG_RW(LOW_POWER_MGT, 0x90) &= ~BIT(31);     // Clear BIT31 to disable RTC WDT
-    REG_RW_RW(LOW_POWER_MGT, 0xA8) = 0x0;        // Re-enable write protection
+    REG_RW(LOW_POWER_MGT, 0xA8) = 0x0;           // Re-enable write protection
 
     // Configure super WDT auto feed (TRM 12.3.2.2)
     REG_RW(LOW_POWER_MGT, 0xB0) = 0x8F1D312A;    // Disable write protection
@@ -140,12 +142,12 @@ static inline void wdt_disable(void) {
     REG_RW(TIMER_GROUP_0, 0x48) &= ~BIT(31);     // Clear BIT31 to disable TG0 WDT
 
     // Disable Timer Group 1 WDT (TRM 12.2.2.3)
-    REG_RW(TIMER_GROUP_0, 0xFC) &= ~BIT(29);     // Clear BIT29 to disable WDT's clock
+    REG_RW(TIMER_GROUP_1, 0xFC) &= ~BIT(29);     // Clear BIT29 to disable WDT's clock
     REG_RW(TIMER_GROUP_1, 0x48) &= ~BIT(31);     // Clear BIT 31 to disable TG1 WDT
 }
 ```
 
-That should be enough for our first attempt at a second stage bootloader to load our code and start executing. The other functions for our blinky example follow the same pattern - read the manual, define the registers, write a function to manipulate the registers.
+That should be enough for our first attempt at a second stage bootloader to load our code and start executing. The other functions for our blinky example follow the same pattern - read the manual, define the registers, write a function to manipulate the registers. The only thing worth mentioning is that our blocking delay reads `systicks` from a register, and calls the assembly `nop` pseudo-instruction to spin the CPU until it's time to do work again.
 
 ## Build system
 
@@ -181,19 +183,63 @@ So as horrible as this all looks, all it is really doing is:
 - Telling the linker that the `call_start_cpu0` function needs to be the first code that is executed with the `ENTRY` flag
 - Ensuring the linker places instructions with certain labels in the appropriate part of the memory (eg all text sections are placed in iram_seg)
 
-Finally, we can put together a Makefile to automate the build process:
+Finally, we can put together a Makefile to automate the build process. This allows some rather verbose command line instructions to be called with the make commands:
 
 ```make
+CFLAGS      ?= -Wall -Wextra -Werror=all \
+               -march=rv32imc -mabi=ilp32 \
+               -Og -ffunction-sections -fdata-sections \
+               -I. -I$(SDK) $(EXTRA_CFLAGS)
+LINKFLAGS   ?= -T$(SDK)/link.ld -nostartfiles $(EXTRA_LINKFLAGS)
+FLASHFLAGS  ?= --baud 460800 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0
+TOOLCHAIN   ?= riscv32-esp-elf
+SRCS        ?= $(SDK)/*.c $(SOURCES)
 
+build: $(SDK)/../build/firmware.bin
+
+$(SDK)/../build/firmware.elf: $(SRCS)
+	$(TOOLCHAIN)-gcc  $(CFLAGS) $(SRCS) $(LINKFLAGS) -o $@
+
+$(SDK)/../build/firmware.bin: $(SDK)/../build/firmware.elf
+	esptool.py --chip esp32c3 elf2image $(SDK)/../build/firmware.elf
+
+flash:
+	esptool.py -p $(PORT) $(FLASHFLAGS) $(SDK)/../build/firmware.bin
+
+monitor:
+	cu -s 115200 -l $(PORT)
+
+clean:
+	@rm -rf $(SDK)/../build/*.{bin,elf} $(SDK)/../build/firmware*
+
+erase-flash:
+	esptool.py -p $(PORT) -b 460800 --before default_reset --after hard_reset --chip esp32c3 erase_flash
 ```
+
+So... The moment of truth... With a LED and 220R resistor wired to GPIO2, we can do the following:
+
+```bash
+export SDK=~/your_path_to/garage_monitor/esp_bare_c/sdk
+export PORT=/dev/ttyACM0
+. $HOME/esp/esp-idf/export.sh
+
+make erase-flash clean build flash
+```
+
+...and there's a LED flashing on/off over a 1 second cycle. A cool proof of concept, but just a starting point. Let's push through and explore how to read from a GPIO and work with tasks and interrupts.
 
 ## Building and flashing
 
 Commands to build, flash and monitor the project are as follows:
 
 ```bash
-# build
-make build
+# Set variables for your locations, espidf to PATH
+export SDK=~/your_path_to/garage_monitor/esp_bare_c/sdk
+export PORT=/dev/ttyACM0
+. $HOME/esp/esp-idf/export.sh
+
+# clean and build
+make clean build
 
 # flash
 make flash
@@ -201,8 +247,8 @@ make flash
 # monitor
 make monitor
 
-# clean, build, flash and monitor
-make all
+# erase flash
+make erase-flash
 ```
 
 ## Observations and Next Steps
