@@ -7,6 +7,8 @@
 - [Blinky base example](#blinky-base-example)
 - [Second Stage Bootloader](#second-stage-bootloader)
 - [Build System](#build-system)
+- [Introducing interrupts](#introducting-interrupts)
+- [Extending the bootloader](#extending-the-bootloader)
 - [Building and Flashing](#building-and-flashing)
 - [Observations and Next Steps](#observations-and-next-steps)
 
@@ -38,11 +40,9 @@ git checkout
 
 ## The strategy
 
-This project will start off by reviewing the documentation for the ESP32C3, and the documentation and code in the ESP-IDF. The first task will be understanding the path of least resistance to getting our own code running on the chip. This will serve as the initial proof of concept for a from-scratch application.
+This project will start off by reviewing the documentation for the ESP32C3, and the documentation and code in the ESP-IDF. The first task will be understanding the path of least resistance to getting our own code running on the chip. This will serve as the initial proof of concept for a from-scratch application. Once our minimal example is ready, the build tools will be set up. To simplify the process, this will use some of the ESP-IDF tools, so whilst the application is independent of the ESP-IDF, the build tools will not be.
 
-Once our minimal example is ready, the build tools will be set up. To simplify the process, this will use some of the ESP-IDF tools, so whilst the application is independent of the ESP-IDF, the build tools will not be.
-
-Finally, the basic example will be built upon to achieve the gpio features similar to the previous versions of the project.
+Next, the basic example will be built upon to achieve the gpio features similar to the previous versions of the project. Our LED output will be converted to an indicator to show the state of an input, and the reed switch will be configured as the input to a hardware interrupt. We will reference the documentation to understand how hardware interrupts work for this chip (and RISC-V more generally). We will then use the hardware interrupts to implement the desired functionality.
 
 ## Getting started
 
@@ -227,6 +227,16 @@ make erase-flash clean build flash
 ```
 
 ...and there's a LED flashing on/off over a 1 second cycle. A cool proof of concept, but just a starting point. Let's push through and explore how to read from a GPIO and work with tasks and interrupts.
+
+## Introducing interrupts
+
+Our use case is to:
+- Read from a GPIO
+- Output to a different GPIO, depending on the state of the read
+
+This fundamentally simple use case can be addressed with blocking code by simply referring to Section 5.4 of the TRM and adding a gpio_get_level function to our SDK. But it seems a more educational process to do things the hard way and in the process, learn a bit more about the inner workings of the SOC.
+
+## Extending the bootloader
 
 ## Building and flashing
 
