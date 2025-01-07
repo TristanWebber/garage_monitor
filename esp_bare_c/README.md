@@ -21,7 +21,8 @@ This version of the project has some philosophical similarity with the `no-std` 
 The topics that will be covered will be:
 - The ESP32 boot process
 - Building and linking from scratch
-- Controlling the ESP32C3 by reading and writing from registers
+- Controlling the ESP32C3 and its peripherals by reading and writing from registers
+- Hardware interrupts from scratch
 
 ## Quickstart
 
@@ -46,7 +47,7 @@ Next, the basic example will be built upon to achieve the gpio features similar 
 
 ## Getting started
 
-As a path of least resistance, this project will use ESP-IDF tools. So consider the prerequisites of this project as having the [ESP toolchain](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) installed for the ESP32C3. This subproject is based on a linux environment, and doesn't explicitly identify any other system dependencies. At the time of writing, v5.3.1 is the stable release.
+As a path of least resistance, this project will use ESP-IDF tools to compile and flash. So consider the prerequisites of this project as having the [ESP toolchain](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) installed for the ESP32C3. This subproject is based on a linux environment, and doesn't explicitly identify any other system dependencies. At the time of writing, v5.3.1 is the stable release.
 
 The items that will be borrowed from the ESP toolchain will be:
 - The `riscv-esp-elf-gcc` cross compiler.
@@ -56,8 +57,9 @@ To follow along, it will also be handy to have a copy of the [ESP32-C3 Technical
 
 ## Blinky base example
 
-Our minimalistic example will be Blinky. The starting point is heavily inspired by [mdk](https://github.com/cpq/mdk) - the repo that convinced me this was an idea worth playing with. The use of a GPIO output allows the proof of concept to demonstrate our code is actually running, but avoiding having to log to UART and its implications of implemented newlib functions (which would be required for hello world). We will make a LED blink and use that as proof that our code has been flashed on to the device, has been loaded by the first stage bootloader, and operates correctly. We will work towards making the following code work:
+Our minimalistic example will be Blinky - flashing an LED on and off by using the GPIO driver. We'll consider this as the path of least resistance to prove that our toolchain works and we have bare metal control of the processor and peripherals. Since this is an embedded project, we don't have `stdio.h` functions like `printf`, so using GPIOs is more straightforward than printing a message to the host. Note that the ESP32 family _does_ actually have `printf` (and other stdio and stdlib functions) burned in to the chip ROM from the factory, however using those functions is not entirely consistent with the bare metal philosophy so we will ignore them.
 
+The starting point of this test is heavily inspired by [mdk](https://github.com/cpq/mdk) - the repo that convinced me this was an idea worth playing with. We will work towards making the following code work:
 
 #### **`main.c`**
 ```C
@@ -89,7 +91,7 @@ In order to get to the point where this can work, there are some steps that need
 
 The first hurdle to getting our blinky code on to the chip and running will be to get the CPU to acknowledge its existence and load the first instructions. We can familiarise ourselves, at a high level with the ESP32C3 boot process by checking the [documentation](https://docs.espressif.com/projects/esp-idf/en/v5.3.1/esp32c3/api-guides/startup.html). Here we see that a first stage bootloader is located on the ROM of the chip and cannot be modified. `The first stage bootloader loads the second-stage bootloader image to RAM (IRAM & DRAM) from flash offset 0x0.`
 
-This means that for our example, there's very little that needs to be done to facilitate our own `main.c` being loaded on to the chip. The bare minimum that needs to be done is to point the bootloader to our main function. We *should* do a bunch of other checks and tasks before loading our user code, but let's just forget about most of that for now because it won't stop our project from working. The only other thing we will tackle intially will be to disable the watchdog timers (TRM 12) to prevent our chip from getting stuck in a reset loop. We would ideally be implementing code to feed the watchdog timers but that's not part of our objective just yet. Our first pass at a second stage bootloader will look like this, borrowing the function name from ESP-IDF:
+This means that for our example, there's very little that needs to be done to facilitate our own `main.c` being loaded on to the chip. The bare minimum that needs to be done is to point the second stage bootloader to our main function. We *should* do a bunch of other checks and tasks before loading our user code, but let's just forget about most of that for now because it won't stop our project from working. The only other thing we will tackle intially will be to disable the watchdog timers (TRM 12) to prevent our chip from getting stuck in a reset loop. We would ideally be implementing code to feed the watchdog timers but that's not part of our objective just yet. Our first pass at a second stage bootloader will look like this, borrowing the function name from ESP-IDF:
 
 #### **`bootloader.c`**
 ```C
@@ -227,6 +229,106 @@ make erase-flash clean build flash
 ```
 
 ...and there's a LED flashing on/off over a 1 second cycle. A cool proof of concept, but just a starting point. Let's push through and explore how to read from a GPIO and work with tasks and interrupts.
+
+## GPIO read and logging
+
+If we want to poll a GPIO to read the state of a reed switch, the process is very similar to the previously applied techniques of configuring the GPIO driver to treat that pin as an input by setting register values, and read the state of the pin from another register.
+
+#### **`sdk.h`**
+```C
+// Set gpio pin as input with internal pulldown resistor
+static inline void gpio_set_input_pulldown(int pin) {
+    // Clear the output configuration bit
+    REG_RW(GPIO, 0x20) &= ~BIT(pin);
+    // Configure pin as input (bit 9) and enable pulldown (bit 10)
+    REG_RW(IO_MUX, (0x0004 + (4 * pin))) = BIT(9) | BIT(10);
+}
+
+// Return the current digital state of a gpio input
+static inline bool gpio_read(int pin) {
+    return REG_RW(GPIO, 0x3C) & BIT(pin);
+}
+```
+
+Using this new code, our `main.c` can easily be updated to poll the input pin and output the state to our output pin containing the LED. That's cool, but why use a microcontroller to do something that a LED in series can also achieve?? One way to justify the use of a microcontroller for such a basic task is to use one of the communication interfaces to output a message to the host. In the case of the Seeed XIAO ESP32C3, the a USB driver is wired up and ready to go, so let's have a look at using that.
+
+By now, the process of using the reference manual should be pretty familiar. Once again, we find the USB driver on the chip is a peripheral that we access by reading and writing to registers. Section 30.3.2 contains the information we need, and some information we don't. The important bits:
+
+```
+When the firmware has data to send, it can do so by putting it in the send buffer and triggering a flush, allowing the host to receive the data in a USB packet. In order to do so, there needs to be space available in the send buffer. Firmware can check this by reading USB_REG_SERIAL_IN_EP_DATA_FREE; a one in this register field indicates there is still free room in the buffer. While this is the case, firmware can fill the buffer by writing bytes to the USB_SERIAL_JTAG_EP1_REG register.
+
+Writing the buffer doesn’t immediately trigger sending data to the host. This does not happen until the buffer is flushed; a flush causes the entire buffer to be readied for reception by the USB host at once. A flush can be triggered in two ways: after the 64th byte is written to the buffer, the USB hardware will automatically flush the buffer to the host. Alternatively, firmware can trigger a flush by writing a one to USB_REG_SERIAL_WR_DONE.
+```
+
+OK, so a simplistic approach to output a single character to a host will be to:
+
+- Check if there is room in the USB FIFO buffer by reading a bit
+- Write a byte (ASCII char) to the USB FIFO buffer
+- Write to a register to force the buffer to flush and make the data available to the host
+
+This all seems pretty straightforward - each of those operations can be performed with literally one line of code. However it would be tedious for us to write to this peripheral one byte at a time. Let's also implement our own version of `puts`, so we can write a whole null terminated string to the buffer. Our higher level function could look like this:
+
+#### **`sdk.h`**
+```C
+// Print a cstring to the USB serial device
+static inline int usb_print(char *bytes_to_send) {
+    int res = -1;
+    // Wait for buffer to be ready
+    if (!usb_wait_for_flush()) {
+        return res;
+    }
+
+    // Write each byte to the buffer
+    for (int i = 0; i < (int)strlen(bytes_to_send); i++) {
+        if (usb_fifo_full()) {
+            usb_fifo_flush();
+
+            if (!usb_wait_for_flush()) {
+                return res;
+            }
+        }
+        usb_write_byte(bytes_to_send[i]);
+        res = i;
+    }
+
+    // Force a flush to ensure all characters are processed
+    usb_fifo_flush();
+    return res;
+}
+```
+
+Note that there is a `usb_wait_for_flush()` that is simply a timeout to prevent this functionality from blocking forever in the event that there is no host connected. This function will return the number of bytes successfully written to the buffer (or -1 if no bytes were written), and this results in some useful feedback to the caller of the function. However, it is worth pausing to consider some of the performance implications of this higher level function. Thinking about how this will be represented in assembly, there are a lot of branches here, repeated calls to the strlen function, a loop that counts up, and comparison between signed integers. These choices all introduce multiple extra instructions. Our processor is plenty fast enough to deal with this code without any issues, but it's also helpful to be aware of how our design choices influence the amount of memory and instructions that will be required.
+
+Now that we have our own simplistic version of puts, we can update our main code:
+
+#### **`main.c`**
+```C
+/* ----snip---- */
+int led_state = 0;
+char *message = "LED state: 0\r\n";
+
+int main(void) {
+    gpio_set_output(LED_PIN);
+    gpio_set_input_pulldown(SW_PIN);
+
+    for(;;) {
+        led_state = gpio_read(SW_PIN);
+        gpio_set_level(LED_PIN, led_state);
+        message[11] = led_state + '0';
+        usb_print(message);
+        delay_ms(500);
+    }
+
+    return 0;
+}
+```
+
+Again, we are reminded that stdio is not present in the embedded environment when we format our message, but we can test this and see two things:
+
+- We have some logging capability
+- This synchronous code makes it possible that events will be missed
+
+This leads us back to the same solution we have previously considered to ensure we capture transient events on our gpio input - interrupts. Only this time, we will need to implement them at a low level.
 
 ## Introducing interrupts
 

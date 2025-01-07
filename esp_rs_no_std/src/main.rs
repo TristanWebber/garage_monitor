@@ -250,13 +250,6 @@ fn main() -> ! {
             delay.delay_millis(1000);
         }
     }
-
-    // Read and log sensor results periodically
-    // Application code START
-    //loop {
-    //    delay.delay_millis(300_000);
-    //}
-    // Application code END
 }
 
 // GPIO Interrupt handler unlistens, clears interrupt and starts debounce timer

@@ -184,17 +184,17 @@ cargo objdump --bin esp_rs_no_std --release -- --disassemble --no-show-raw-insn 
 
 #### **`esp_rs_no_std.S`**
 ```asm
-// ---snip---
-//Disassembly of section .rwtext:
+# ---snip---
+Disassembly of section .rwtext:
 
 40380460 <interrupt1>:
 40380460:       mv a1, a0
 40380462:       li a0, 0x1
 40380464:       j 0x40380602 <handle_interrupts>
-// ---snip---
+# ---snip---
 ```
 
-First off, all of the interrupts are in the `.rwtext`, segmented away from the rest of the code. Secondly, none of the assembly has a jump to any of the interrupts, so we have verified that if these are called, it is by the hardware, not the software. So this shows us that whenever a hardware interrupt occurs, the CPU jumps to the `handle_interrupts` function with two arguments (a0 - the interrupt number, a1 - the callee context) and iterates through any configured interrupts then applies any handlers. The callee context is a copy of the callee's registers, therefore allowing the CPU to switch context between the callee's stack and the interrupt.
+First off, all of the interrupts are in the `.rwtext`, segmented away from the code written by the user in the `.text` section. Secondly, looking at the disassembly of the <main> function, it can be seen that the only way the program branches to these interrupt routines is if certain conditions are observed after the CPU reads from the Control and Status Registers (CSRs). So this shows us that whenever a hardware interrupt occurs, a value is set in the CSR and the CPU jumps to the `handle_interrupts` function with two arguments (a0 - the interrupt number, a1 - the callee context) and iterates through any configured interrupts then applies any handlers. The callee context is a copy of the callee's registers, therefore allowing the CPU to switch context between the callee's stack and the interrupt.
 
 ### Add a debounce timer
 The extremely low latency of the gpio interrupt means that a debounce will be needed to prevent noisy data that occurs from multiple interrupt triggers from the same event. Like the previous examples, a timer can be used. Without an OS, we can again rely on hardware features and user a timer callback. Let's reimagine the program flow:
