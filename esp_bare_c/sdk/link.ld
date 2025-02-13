@@ -1,28 +1,16 @@
-/* The offset between Dbus and Ibus. Used to convert between 0x403xxxxx and 0x3fcxxxxx addresses. */
-iram_dram_offset = 0x700000;
+/* SRAM1 contains general purpose memory addressable by both the instruction bus (as iram) and the data bus (as dram). The address space of the two buses is offset by 0x70_0000, but they are in the same memory, so care must be taken to prevent the iram and dram colliding */
 
-/* We consider 0x3fcdc710 to be the last usable address for 2nd stage bootloader stack overhead, dram_seg,
- * and work out iram_seg and iram_loader_seg addresses from there, backwards.
- */
+/* SRAM1 can be accessed by instruction bus (0x4038_000 to 0x403C_AE00) */
+iram_seg_start = 0x40380000;
+/* SRAM1 can be accessed by data bus (0x3FC8_000 to 0x3FCC_AE00) */
+dram_seg_start = 0x3FC80000;
 
-/* These lengths can be adjusted, if necessary: */
-bootloader_usable_dram_end = 0x3fcdc710;
-bootloader_stack_overhead = 0x2000; /* For safety margin between bootloader data section and startup stacks */
-bootloader_dram_seg_len = 0x5000;
-bootloader_iram_loader_seg_len = 0x7000;
-bootloader_iram_seg_len = 0x2000;
-
-/* Start of the lower region is determined by region size and the end of the higher region */
-bootloader_dram_seg_end = bootloader_usable_dram_end - bootloader_stack_overhead;
-bootloader_dram_seg_start = bootloader_dram_seg_end - bootloader_dram_seg_len;
-bootloader_iram_loader_seg_start = bootloader_dram_seg_start - bootloader_iram_loader_seg_len + iram_dram_offset;
-bootloader_iram_seg_start = bootloader_iram_loader_seg_start - bootloader_iram_seg_len;
+/* dram immediately follows iram, so offset the start of the dram space by LENGTH(iram_seg)*/
 
 MEMORY
 {
-  iram_seg (RWX) :                  org = bootloader_iram_seg_start, len = bootloader_iram_seg_len
-  iram_loader_seg (RWX) :           org = bootloader_iram_loader_seg_start, len = bootloader_iram_loader_seg_len
-  dram_seg (RW) :                   org = bootloader_dram_seg_start, len = bootloader_dram_seg_len
+  iram_seg (RWX) :                  org = iram_seg_start, len = 32k
+  dram_seg (RW) :                   org = dram_seg_start + LENGTH(iram_seg), len = 32k
 }
 
 ENTRY(call_start_cpu0)

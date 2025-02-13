@@ -19,14 +19,14 @@ This is the final version of the garage monitor application. To date, the applic
 This version of the project has some philosophical similarity with the `no-std` Rust version of the project, in that our user code starts as early in the ESP32 boot process as possible, and does not rely on an operating system to orchestrate tasks. As a result, the project will be entirely impractical, and will serve no purpose aside from the satisfaction of curiosity and a bit of education.
 
 The topics that will be covered will be:
-- The ESP32 boot process
+- The ESP32-C3 boot process
 - Building and linking from scratch
-- Controlling the ESP32C3 and its peripherals by reading and writing from registers
+- Controlling the ESP32-C3 and its peripherals by reading and writing from registers
 - Hardware interrupts from scratch
 
 ## Quickstart
 
-This series of projects is presented as an demonstration and discussion piece, however if you simply want to take some or all of the repository and use it for your own projects without suffering through the narrative you can:
+This series of projects is presented as a demonstration and discussion piece, however if you simply want to take some or all of the repository and use it for your own projects without suffering through the narrative you can:
 
 0. [Acquire and assemble](https://github.com/TristanWebber/garage_monitor/blob/main/README.md#hardware) the appropriate hardware
 1. Ensure you have the [ESP-IDF and toolchain](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) installed
@@ -47,7 +47,7 @@ Next, the basic example will be built upon to achieve the gpio features similar 
 
 ## Getting started
 
-As a path of least resistance, this project will use ESP-IDF tools to compile and flash. So consider the prerequisites of this project as having the [ESP toolchain](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) installed for the ESP32C3. This subproject is based on a linux environment, and doesn't explicitly identify any other system dependencies. At the time of writing, v5.3.1 is the stable release.
+As a path of least resistance, this project will use ESP-IDF tools to compile and flash. So consider the prerequisites of this project as having the [ESP toolchain](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) installed for the ESP32C3. This subproject was developed in a linux environment, and doesn't explicitly identify any other system dependencies. At the time of writing, v5.3.1 is the stable release.
 
 The items that will be borrowed from the ESP toolchain will be:
 - The `riscv-esp-elf-gcc` cross compiler.
@@ -57,7 +57,7 @@ To follow along, it will also be handy to have a copy of the [ESP32-C3 Technical
 
 ## Blinky base example
 
-Our minimalistic example will be Blinky - flashing an LED on and off by using the GPIO driver. We'll consider this as the path of least resistance to prove that our toolchain works and we have bare metal control of the processor and peripherals. Since this is an embedded project, we don't have `stdio.h` functions like `printf`, so using GPIOs is more straightforward than printing a message to the host. Note that the ESP32 family _does_ actually have `printf` (and other stdio and stdlib functions) burned in to the chip ROM from the factory, however using those functions is not entirely consistent with the bare metal philosophy so we will ignore them.
+The first task will be proving out the concept with as little code as possible using Blinky - flashing an LED on and off by using the GPIO driver. We'll consider this as the path of least resistance to prove that our toolchain works and we have bare metal control of the processor and peripherals. Since this is an embedded project, we don't have `stdio.h` functions like `printf`, so using GPIOs is more straightforward than printing a 'hello world' message to the host. Note that the ESP32 family _does_ actually have `printf` (and other stdio and stdlib functions) burned in to the chip ROM from the factory, however using those functions is not entirely consistent with the bare metal philosophy so we will ignore them.
 
 The starting point of this test is heavily inspired by [mdk](https://github.com/cpq/mdk) - the repo that convinced me this was an idea worth playing with. We will work towards making the following code work:
 
@@ -83,17 +83,26 @@ int main(void) {
 ```
 
 In order to get to the point where this can work, there are some steps that need to be done:
-- Create a second stage bootloader
+- Work with the existing boot process
 - Write the gpio and delay functions
 - Create scripts for our build system
 
-## Second stage bootloader
+## ESP32-C3 Boot Process
 
-The first hurdle to getting our blinky code on to the chip and running will be to get the CPU to acknowledge its existence and load the first instructions. We can familiarise ourselves, at a high level with the ESP32C3 boot process by checking the [documentation](https://docs.espressif.com/projects/esp-idf/en/v5.3.1/esp32c3/api-guides/startup.html). Here we see that a first stage bootloader is located on the ROM of the chip and cannot be modified. `The first stage bootloader loads the second-stage bootloader image to RAM (IRAM & DRAM) from flash offset 0x0.`
+The first hurdle to getting our blinky code on to the chip and running will be to get the CPU to acknowledge its existence and load the first instructions. We can familiarise ourselves, at a high level with the ESP32-C3 boot process by checking the [documentation](https://docs.espressif.com/projects/esp-idf/en/v5.3.1/esp32c3/api-guides/startup.html). Here we see that a first stage bootloader is located on the ROM of the chip and cannot be modified. `The first stage bootloader loads the second-stage bootloader image to RAM (IRAM & DRAM) from flash offset 0x0.`
 
-This means that for our example, there's very little that needs to be done to facilitate our own `main.c` being loaded on to the chip. The bare minimum that needs to be done is to point the second stage bootloader to our main function. We *should* do a bunch of other checks and tasks before loading our user code, but let's just forget about most of that for now because it won't stop our project from working. The only other thing we will tackle intially will be to disable the watchdog timers (TRM 12) to prevent our chip from getting stuck in a reset loop. We would ideally be implementing code to feed the watchdog timers but that's not part of our objective just yet. Our first pass at a second stage bootloader will look like this, borrowing the function name from ESP-IDF:
+So on power-up, the following steps occur:
+1. Hardware startup and checks occur, then the program counter is directed to memory address 0x4000_0000 - the location of the ROM bootloader
+2. The ROM bootloader performs basic configuration tasks, loads code from flash offset 0x0 to IRAM memory and points the program counter to that location*
+3. Instructions that were located at flash offset 0x0 begin executing
 
-#### **`bootloader.c`**
+If we were using ESP-IDF, Step 3 would start the ESP-IDF second-stage bootloader, and eventually our `app_main()` would be called. But there's nothing stopping us from placing our own code at that location in flash. For this particular chip, that is the closest to 'bare metal' we can be (the ROM bootloader is immutable and cannot be modified by us).
+
+For our use case, there is no reason to have a second-stage bootloader. Our application is small, so it will be entirely in memory. This means that there's very little that needs to be done to facilitate our own `main.c` being loaded on to the chip. The bare minimum that needs to be done is to point to our main function. However, it makes sense to hide away the low level code, including the tasks to be performed at boot, so let's create a basic `init` file so that can all be hidden away from the user code.
+
+As a first pass, the only thing to be done before calling main is to disable the watchdog timers (TRM 12) to prevent our chip from getting stuck in a reset loop. We *should* do a bunch of other checks and tasks before loading our user code, but let's just forget about most of that for now because it won't stop our project from working. We would ideally be implementing code to feed the watchdog timers but that's not part of our objective just yet. Our first pass at the init code looks like this, borrowing the function name `call_start_cpu0` from ESP-IDF:
+
+#### **`init.c`**
 ```C
 #include "sdk.h"
 
@@ -127,7 +136,7 @@ Following the approach described in the docs, we'll disable write protection, se
 
 #### **`sdk.h`**
 ```C
-static inline void wdt_disable(void) {
+void wdt_disable(void) {
     // Disable RTC WDT (TRM 12.2.2.3)
     REG_RW(LOW_POWER_MGT, 0xA8) = 0x50D83AA1;    // Disable write protection
     REG_RW(LOW_POWER_MGT, 0x90) &= ~BIT(31);     // Clear BIT31 to disable RTC WDT
@@ -149,22 +158,33 @@ static inline void wdt_disable(void) {
 }
 ```
 
-That should be enough for our first attempt at a second stage bootloader to load our code and start executing. The other functions for our blinky example follow the same pattern - read the manual, define the registers, write a function to manipulate the registers. The only thing worth mentioning is that our blocking delay reads `systicks` from a register, and calls the assembly `nop` pseudo-instruction to spin the CPU until it's time to do work again.
+That should be enough setup for now. The other functions for our blinky example (`gpio_set_output()`, `gpio_set_level()`, `delay_ms()`) follow the same pattern - read the manual, define the registers, write a function to manipulate the registers. The only thing worth mentioning is that our blocking delay reads `systicks` from a register, and calls the assembly `nop` pseudo-instruction to spin the CPU until it's time to do work again.
+
+* I reversed the ROM bootloader out of curiosity to see what was happening in that first stage of boot. For reference, the steps are roughly:
+1. Set a default interrupt and exception handler
+2. Configure bootloader memory regions
+3. Configure interface peripherals and CPU settings
+4. Attach flash by SPI, place user code in memory and start executing user code
 
 ## Build system
 
-Our application code is done. In theory, this should work if assembled to riscv instructions and linked in a way that allows the esp32c3 to find the starting point of the application. So to finish off the prototype, let's setup a Makefile and linker script to facilitate that happening.
+Our blinky application code is done. In theory, this should work if assembled to riscv instructions and linked in a way that allows the esp32c3 to find the starting point of the application. So to finish off the prototype, let's setup a Makefile and linker script to facilitate that happening.
 
-For these, again we can draw on the reference material of the Technical Reference Manual, and the ESP-IDF Programming Guide to understand how these need to be laid out. Let's start with the linker script. For the proof of concept, the same general layout as the ESP-IDF linker can be used, however we can simplify a little and ignore the iram_loader_seg for now.
+For these, again we can draw on the reference material of the Technical Reference Manual, and the ESP-IDF Programming Guide to understand how these need to be laid out. Let's start with the linker script. This will make sure the code we have written will be linked with addresses that make sense to the CPU. The important parts of this script are:
+
+- Our iram_seg will start at the address 0x4038_0000 and will be 32kB in size
+- Our dram_seg will start immediately after the iram_seg and will be 32kB in size
+- ENTRY tells the linker call_start_cpu0 will be the program entry point
+- Instructions (anything with .text.* labels) will be placed in the iram_seg
+- Data will be placed in the dram_seg
 
 ```Linker Script
 /* ----snip---- */
 
 MEMORY
 {
-  iram_seg (RWX) :                  org = bootloader_iram_seg_start, len = bootloader_iram_seg_len
-  iram_loader_seg (RWX) :           org = bootloader_iram_loader_seg_start, len = bootloader_iram_loader_seg_len
-  dram_seg (RW) :                   org = bootloader_dram_seg_start, len = bootloader_dram_seg_len
+  iram_seg (RWX) :                  org = 0x40380000, len = 32k
+  dram_seg (RW) :                   org = 0x3FC80000 + LENGTH(iram_seg), len = 32k
 }
 
 ENTRY(call_start_cpu0)
@@ -180,12 +200,8 @@ SECTIONS {
 }
 ```
 
-So as horrible as this all looks, all it is really doing is:
-- Defining the boundaries of some regions of memory with the `MEMORY` flag (iram for instructions, dram for variables and constants)
-- Telling the linker that the `call_start_cpu0` function needs to be the first code that is executed with the `ENTRY` flag
-- Ensuring the linker places instructions with certain labels in the appropriate part of the memory (eg all text sections are placed in iram_seg)
+Finally, we can put together a Makefile to automate the build process. This allows some rather verbose command line instructions to be called with the make commands. This will build a elf file with the gcc riscv32 cross compiler provided by esp-idf, create a .bin image with esptool.py, flash the image to the chip using esptool.py and monitor using cu. Nothing magical, but it saves a lot of time and effort.
 
-Finally, we can put together a Makefile to automate the build process. This allows some rather verbose command line instructions to be called with the make commands:
 
 ```make
 CFLAGS      ?= -Wall -Wextra -Werror=all \
@@ -218,7 +234,7 @@ erase-flash:
 	esptool.py -p $(PORT) -b 460800 --before default_reset --after hard_reset --chip esp32c3 erase_flash
 ```
 
-So... The moment of truth... With a LED and 220R resistor wired to GPIO2, we can do the following:
+For this to work, we need to run the esp_idf export.sh script, and export the path of the SDK and upload port before using. So... The moment of truth... With a LED and 220R resistor wired to GPIO2, we can do the following:
 
 ```bash
 export SDK=~/your_path_to/garage_monitor/esp_bare_c/sdk
@@ -228,7 +244,7 @@ export PORT=/dev/ttyACM0
 make erase-flash clean build flash
 ```
 
-...and there's a LED flashing on/off over a 1 second cycle. A cool proof of concept, but just a starting point. Let's push through and explore how to read from a GPIO and work with tasks and interrupts.
+...and there's a LED flashing on/off over a 1 second cycle. It's a small reward for all that work setting up our bare metal environment, but it's visual proof that our own instructions are being executed on the chip, from scratch. Let's push through and explore how to read from a GPIO and work with tasks and interrupts.
 
 ## GPIO read and logging
 
@@ -237,7 +253,7 @@ If we want to poll a GPIO to read the state of a reed switch, the process is ver
 #### **`sdk.h`**
 ```C
 // Set gpio pin as input with internal pulldown resistor
-static inline void gpio_set_input_pulldown(int pin) {
+void gpio_set_input_pulldown(int pin) {
     // Clear the output configuration bit
     REG_RW(GPIO, 0x20) &= ~BIT(pin);
     // Configure pin as input (bit 9) and enable pulldown (bit 10)
@@ -245,7 +261,7 @@ static inline void gpio_set_input_pulldown(int pin) {
 }
 
 // Return the current digital state of a gpio input
-static inline bool gpio_read(int pin) {
+static inline bool gpio_read(uint32_t pin) {
     return REG_RW(GPIO, 0x3C) & BIT(pin);
 }
 ```
@@ -266,12 +282,14 @@ OK, so a simplistic approach to output a single character to a host will be to:
 - Write a byte (ASCII char) to the USB FIFO buffer
 - Write to a register to force the buffer to flush and make the data available to the host
 
-This all seems pretty straightforward - each of those operations can be performed with literally one line of code. However it would be tedious for us to write to this peripheral one byte at a time. Let's also implement our own version of `puts`, so we can write a whole null terminated string to the buffer. Our higher level function could look like this:
+This all seems pretty straightforward - each of those operations can be performed with literally one line of code. However it would be tedious for us to write to this peripheral one byte at a time. We have a couple of options here - we could write a couple of helper functions for newlib and have all of the stdio.h functions available to us (including plenty we won't use), or we could continue with the 'from scratch' mentality. Using newlib would exponentially increase the footprint of our application, so let's go with the 'from scratch' option!
+
+It will be possible to achieve all we need with our own version of `puts` - this would allow writing a whole null terminated string to the buffer. Our higher level function could look like this:
 
 #### **`sdk.h`**
 ```C
 // Print a cstring to the USB serial device
-static inline int usb_print(char *bytes_to_send) {
+int usb_print(char *bytes_to_send) {
     int res = -1;
     // Wait for buffer to be ready
     if (!usb_wait_for_flush()) {
@@ -279,7 +297,7 @@ static inline int usb_print(char *bytes_to_send) {
     }
 
     // Write each byte to the buffer
-    for (int i = 0; i < (int)strlen(bytes_to_send); i++) {
+    for (int i = 0; bytes_to_send[i] != '\0'; i++) {
         if (usb_fifo_full()) {
             usb_fifo_flush();
 
@@ -297,7 +315,7 @@ static inline int usb_print(char *bytes_to_send) {
 }
 ```
 
-Note that there is a `usb_wait_for_flush()` that is simply a timeout to prevent this functionality from blocking forever in the event that there is no host connected. This function will return the number of bytes successfully written to the buffer (or -1 if no bytes were written), and this results in some useful feedback to the caller of the function. However, it is worth pausing to consider some of the performance implications of this higher level function. Thinking about how this will be represented in assembly, there are a lot of branches here, repeated calls to the strlen function, a loop that counts up, and comparison between signed integers. These choices all introduce multiple extra instructions. Our processor is plenty fast enough to deal with this code without any issues, but it's also helpful to be aware of how our design choices influence the amount of memory and instructions that will be required.
+Note that there is a `usb_wait_for_flush()` that is simply a timeout to prevent this functionality from blocking forever in the event that there is no host connected. This function will return the number of bytes successfully written to the buffer (or -1 if no bytes were written), and this results in some useful feedback to the caller of the function. This is not a particularly efficient function due to all the branching, however it does the job and this processor has plenty of power, so the inefficiencies aren't worth too much of our attention.
 
 Now that we have our own simplistic version of puts, we can update our main code:
 
@@ -323,22 +341,54 @@ int main(void) {
 }
 ```
 
-Again, we are reminded that stdio is not present in the embedded environment when we format our message, but we can test this and see two things:
+ Again, we are reminded that stdio is not present in the embedded environment when we format our message: manipulating a byte in the message directly isn't particularly ergonomic but we're doing limited logging so again, this a tradeoff we're accepting. We can test this and see two things:
 
 - We have some logging capability
 - This synchronous code makes it possible that events will be missed
 
-This leads us back to the same solution we have previously considered to ensure we capture transient events on our gpio input - interrupts. Only this time, we will need to implement them at a low level.
+If a short event were to occur during the delay, there would be nothing to notify us it ever occurred. This leads us back to the same solution we have previously considered to ensure we capture transient events on our gpio input - interrupts. Only this time, we will need to implement them at a low level.
 
 ## Introducing interrupts
 
-Our use case is to:
-- Read from a GPIO
-- Output to a different GPIO, depending on the state of the read
+Let's start with the outcome we want to achieve, then move towards how to implement interrupts on RISC-V, and then create a solution.
 
-This fundamentally simple use case can be addressed with blocking code by simply referring to Section 5.4 of the TRM and adding a gpio_get_level function to our SDK. But it seems a more educational process to do things the hard way and in the process, learn a bit more about the inner workings of the SOC.
+For our use case we want to:
+- Allow an edge-triggered interrupt from a GPIO
+- When an interrupt occurs, perform tasks:
+    - Read the GPIO state
+    - Logging the state
+    - Change the indicator LED state
 
-## Extending the bootloader
+This tells us that we can focus simply on the GPIO peripherals, so our scope can be quite narrow. However, it would still be wise to hide the implementation details away in the sdk, and provide an API that lets a user attach their own handler function. We'll work towards making the following code work:
+
+#### **`main.c`**
+```C
+/* ----snip---- */
+int led_state = 0;
+char *message = "LED state: 0\r\n";
+char *switch_msg = "Switch: 0\r\n";
+
+static void switch_handler(void *param) {
+    uint32_t pin = (uint32_t) (uintptr_t) param;
+    led_state = gpio_read(pin);
+    switch_msg[8] = led_state + '0';
+    usb_print(switch_msg);
+    gpio_set_level(LED_PIN, led_state);
+}
+
+int main(void) {
+    /* ----snip---- */
+    gpio_set_irq_handler(SW_PIN, switch_handler, (void *) SW_PIN);
+    /* ----snip---- */
+}
+```
+
+That is, to attach any edge-triggered interrupt handler to a GPIO pin, all the user will need to do is register the handler against the pin. This satisfies our specific use case, and allows for future addition of more interrupts handlers if we so desire.
+
+Now that the objective is defined, next is to figure out how to achieve this on this specific architecture.
+
+
+## Housekeeping
 
 ## Building and flashing
 

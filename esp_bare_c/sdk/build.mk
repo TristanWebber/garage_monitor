@@ -1,5 +1,5 @@
 CFLAGS      ?= -Wall -Wextra -Werror=all \
-               -march=rv32imc -mabi=ilp32 \
+               -march=rv32imc_zicsr -mabi=ilp32 \
                -Og -ffunction-sections -fdata-sections \
                -I. -I$(SDK) $(EXTRA_CFLAGS)
 LINKFLAGS   ?= -T$(SDK)/link.ld -nostartfiles $(EXTRA_LINKFLAGS)
