@@ -57,4 +57,4 @@ The subprojects are as follows, presented in roughly increasing order of impleme
 3. [Using ESP-IDF and C++](https://github.com/TristanWebber/garage_monitor/tree/main/esp_cpp) to explore a higher level language, and create a driver for the environmental sensor
 4. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_std) and the `std` crate to investigate the benefits and tradeoffs of Rust, while maintaining the familiarity of ESP-IDF interfaces
 5. [Using Rust](https://github.com/TristanWebber/garage_monitor/tree/main/esp_rs_no_std) and the `no-std` crate to investigate baremetal programming on the ESP32
-6. Using baremetal C to implement just the I/O features - COMING SOON
+6. [Using baremetal C](https://github.com/TristanWebber/garage_monitor/tree/main/esp_bare_c) to implement just the I/O features
