@@ -510,11 +510,40 @@ void gpio_clear_interrupt(uint32_t pin) {
 }
 ```
 
+With that in place, our code will finally achieve the original objectives. There is, of course, and endless list of other things that could be added to this project, but this is a good stopping point for the exercise, in terms of functionality.
+
 ## Housekeeping
 
-- read hartid and panic if not in range
-- zero bss
-- re-enable wdt and feed in the delay func
+In the interests of getting quickly to something that works, some useful steps have been skipped. Here are some explanations of some final bits of housekeeping.
+
+### Check the processor health before booting
+
+Before booting, we can attempt to read a control and status register that will have a known and constant value, to make sure the processor is working before continuing the boot process. This can be easily done by reading the control and status register `mhartid`, which should return the value 0. If any other value is returned, an infinite blocking loop will be entered.
+
+
+#### **`init.c`**
+```C
+// Check CPU health by reading hartid. Value should be 0
+uint32_t hartid = CSR_READ(mhartid);
+while (hartid);
+```
+
+### Clear bss memory
+
+Any variables that are not initialised to a specific value have the potential to be some random state when the memory powers up. To avoid potential issues associated with this, it is common practice to explicitly set any uninitialised values to 0. This would often be achieved using `memset`, however in our bare metal environment, stdlib is not available so we can just loop through bss and manually zero all words in that section of memory.
+
+#### **`init.c`**
+```C
+uint32_t *this_word = &_sbss;
+while (this_word < &_ebss) {
+    *this_word = 0;
+    this_word++;
+}
+```
+
+### Enable wdt and feed in the delay func
+
+TODO
 
 ## Building and flashing
 
