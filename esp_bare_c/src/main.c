@@ -11,6 +11,7 @@ char *switch_msg = "Switch: 0\r\n";
 
 static void switch_handler(void *param) {
     uint32_t pin = (uint32_t) (uintptr_t) param;
+    gpio_clear_interrupt(pin);
     led_state = gpio_read(pin);
     switch_msg[8] = led_state + '0';
     usb_print(switch_msg);

@@ -160,3 +160,106 @@ int usb_print(char *bytes_to_send) {
 // Functions for interrupts            //
 /////////////////////////////////////////
 
+// C handlers associated with CPU interrupts, with their arguments
+struct irq_data irq_data[MAX_IRQ];
+
+// Create 32-entry vector table with correct byte alignment
+__attribute__((aligned(256))) void vector_table(void) {
+    asm("j panic_handler");
+    asm(".rept 31");
+    asm("j interrupt_handler");
+    asm(".endr");
+}
+
+// Set machine trap vector, and set vector mode
+void interrupt_init(void) {
+    CSR_WRITE(mtvec, (uint32_t)vector_table | 1);
+
+    // Globally enable interrupts: Set 4th bit of mstatus register
+    CSR_WRITE(mstatus, 0x8);
+}
+
+// Print exception code and loop
+__attribute__((interrupt)) void panic_handler(void) {
+    // Exception cause is last 5 bits of mcause.
+    uint32_t mcause = CSR_READ(mcause) & 0b11111;
+
+    // Convert code to ascii
+    char ls_digit = (mcause % 10) + '0';
+    mcause /= 10;
+    char ms_digit = (mcause % 10) + '0';
+
+    // Print message, loop forever
+    usb_print("Panic occurred. Exception code: ");
+    usb_write_byte(ls_digit); usb_write_byte(ms_digit);
+    usb_write_byte('\r'); usb_write_byte('\n');
+    while(1);
+}
+
+// Clear interrupt and call handler if it exists
+__attribute__((interrupt)) void interrupt_handler(void) {
+    // Exception cause is last 5 bits of mcause.
+    uint32_t trig_irq = CSR_READ(mcause) & 0b11111;
+
+    if (trig_irq < MAX_IRQ) {
+        struct irq_data *handler_item = &irq_data[trig_irq];
+
+        // Call user handler if it exists
+        if (handler_item->handler){
+            handler_item->handler(handler_item->param);
+        }
+    }
+}
+
+int32_t cpu_alloc_interrupt(uint32_t prio) {
+    // Track the number of interrupts allocated
+    static uint32_t allocated;
+
+    // Return early if no free CPU interrupts are available
+    if (allocated == (MAX_IRQ - 1)) {
+        return -1;
+    }
+
+    // Increment to new interrupt index
+    allocated++;
+
+    // Save and clear global interrupt enable (bit 4)
+    uint32_t prev_mstatus = CSR_READ(mstatus);
+    CSR_WRITE(mstatus, prev_mstatus |= ~(0x8));
+
+    // Enable the interrupt
+    REG_RW(INTERRUPT, 0x104) |= BIT(allocated);
+    // Set interrupt priority
+    REG_RW(INTERRUPT, 0x118 + (4 * (allocated - 1))) = prio;
+
+    // Wait for pending write instructions to complete
+    asm("fence");
+    // Restore previous global interrupt state
+    CSR_WRITE(mstatus, prev_mstatus);
+    return allocated;
+}
+
+void gpio_clear_interrupt(uint32_t pin) {
+    REG_RW(GPIO, 0x0044) &= ~BIT(pin);
+}
+
+void gpio_set_irq_handler(uint32_t pin, void (*handler)(void *), void *param) {
+    // Allocate a CPU interrupt, attach handler
+    uint32_t no = cpu_alloc_interrupt(1);
+    irq_data[no].handler = handler;
+    irq_data[no].param = param;
+
+    // Enable GPIO interrupt to detect any edge
+    REG_RW(GPIO, (0x74 + 4 * pin)) |= (3U << 7) | BIT(13);
+
+    // Save and clear global interrupt enable (bit 4)
+    uint32_t prev_mstatus = CSR_READ(mstatus);
+    CSR_WRITE(mstatus, prev_mstatus |= ~(0x8));
+
+    // Map GPIO IRQ to CPU
+    REG_RW(INTERRUPT, 0x40) = (uint32_t) no;
+    // Wait for pending write instructions to complete
+    asm("fence");
+    // Restore previous global interrupt state
+    CSR_WRITE(mstatus, prev_mstatus);
+}

@@ -11,11 +11,13 @@
 // Macros for CSR register operations
 #define CSR_WRITE(reg, val) ({ asm volatile("csrw " #reg ", %0" ::"rK"(val)); })
 #define CSR_READ(reg) ({                       \
-    unsigned long v_;                          \
+    uint32_t v_;                               \
     asm volatile("csrr %0, " #reg : "=r"(v_)); \
     v_;                                        \
 })
 #define CSR_SETBITS(reg, cm, sm) CSR_WRITE(reg, (CSR_READ(reg) & ~(cm)) | (sm))
+
+#define MAX_IRQ 32
 
 // Register base addresses
 #define GPIO          0x60004000
@@ -103,5 +105,17 @@ int usb_print(char *bytes_to_send);
 // Functions for interrupts            //
 /////////////////////////////////////////
 
+struct irq_data {
+    void (*handler)(void *);
+    void *param;
+};
+
+void interrupt_init(void);
+
+int32_t cpu_alloc_interrupt(uint32_t prio);
+
+void gpio_clear_interrupt(uint32_t pin);
+
+void gpio_set_irq_handler(uint32_t pin, void (*handler)(void *), void *param);
 
 #endif /* SDK_H */

@@ -370,8 +370,15 @@ char *switch_msg = "Switch: 0\r\n";
 
 static void switch_handler(void *param) {
     uint32_t pin = (uint32_t) (uintptr_t) param;
+
+    // Clear interrupt to prevent repeat triggers of handler
+    gpio_clear_interrupt(pin);
+
+    // Read switch state into our global status variable
     led_state = gpio_read(pin);
     switch_msg[8] = led_state + '0';
+
+    // Log data, set LED
     usb_print(switch_msg);
     gpio_set_level(LED_PIN, led_state);
 }
@@ -385,10 +392,129 @@ int main(void) {
 
 That is, to attach any edge-triggered interrupt handler to a GPIO pin, all the user will need to do is register the handler against the pin. This satisfies our specific use case, and allows for future addition of more interrupts handlers if we so desire.
 
-Now that the objective is defined, next is to figure out how to achieve this on this specific architecture.
+### Initiate interrupt controller
 
+Now that the objective is defined, next is to figure out how to achieve this on this specific architecture. Section 1.5 and Chapter 8 of the Technical Reference Manual contain the information we need. The ESP32-C3 has an interrupt controller supporting 31 CPU interrupts, to handle 62 interrupt input sources. This means that the bulk of our work will be in making sure that when an interrupt occurs, our code will determine the cause and then use the appropriate handler.
+
+The 31 CPU interrupts map to a _trap vector_ - effectively a series of function pointers. When a CPU interrupt is triggered, the CPU jumps to the corresponding offset in the trap vector to start handling the interrupt. Our straightforward use case allows us to just use a single handler, so all 31 entries in the vector can be identical. There is also a 0th CPU interrupt reserved for exceptions so let's create a second handler for that one. Our trap vector could be defined in a separate assembly file, or using inline assembly. In this case, we choose the latter to keep the build process as simple as possible. We want the instruction `j panic_handler` as the first row and then `j interrupt_handler` repeated 31 times. The Technical Reference Manual states that the base address needs to be aligned to 256 bytes:
+
+#### **`sdk.c`**
+```C
+__attribute__((aligned(256))) void vector_table(void) {
+    asm("j panic_handler");
+    asm(".rept 31");
+    asm("j interrupt_handler");
+    asm(".endr");
+}
+```
+
+The CPU requires a pointer to the vector table to be loaded to a control and status register (CSR) `mtvec`, and the address of this vector table must have the first bit set to `1` to indicate vector mode. We can access the CSRs using more inline assembly, via a macro, and we will call this from our init function so the vector table is loaded before any user code starts:
+
+#### **`sdk.c`**
+```C
+void interrupt_init(void) {
+    CSR_WRITE(mtvec, (uint32_t)vector_table | 1);
+    // Globally enable interrupts: Set 4th bit of mstatus register
+    CSR_WRITE(mstatus, 0x8);
+}
+```
+
+With this vector in place, if a CPU exception occurs, the `panic_handler` will be triggered, or if a CPU interrupt is triggered, the CPU will jump to the `interrupt_handler` function, so let's move on to that next. We'll keep the panic handler simple - print the exception and loop. Right now, this will result in the processor hanging forever, but when we re-enable our watchdog timer, this behaviour will result in a reset. When entering the interrupt handler, the cpu jumps from the current program flow so we need to preserve registers so that when the normal program flow resumes, data is not corrupted. This is doable by manually saving and restoring the register contents at the entry and exit of the interrupt handler using assembly, or we can lean on the gcc compiler to insert those instructions for us using `__attribute__((interrupt))` on the handler.
+
+#### **`sdk.c`**
+```C
+__attribute__((interrupt)) void panic_handler(void) {
+    // Exception cause is last 5 bits of mcause.
+    uint32_t mcause = CSR_READ(mcause) & 0b11111;
+
+    // Convert code to ascii
+    char ls_digit = (mcause % 10) + '0';
+    mcause /= 10;
+    char ms_digit = (mcause % 10) + '0';
+
+    // Print message, loop forever
+    usb_print("Panic occurred. Exception code: ");
+    usb_write_byte(ls_digit); usb_write_byte(ms_digit);
+    usb_write_byte('\r'); usb_write_byte('\n');
+    while(1);
+}
+```
+
+Here, we simply read the value of the exception, log it and loop. When an exception occurs, the kind of exception is placed in the last 5 bits of mcause. Since an exception occurring means that something has likely gone very wrong, no attempt is made to handle it.
+
+The interrupt handler, on the other hand, needs a way to direct the appropriate interrupt number (1-31) to the appropriate user-defined handler. Having an array of up to 32 user-defined handlers and an optional argument to pass to the handler gives the flexibility to achieve this:
+
+#### **`sdk.h`**
+```C
+struct irq_data {
+    void (*handler)(void *);
+    void *param;
+};
+```
+
+#### **`sdk.c`**
+```C
+struct irq_data irq_data[MAX_IRQ];
+
+__attribute__((interrupt)) void interrupt_handler(void) {
+    // Exception cause is last 5 bits of mcause.
+    uint32_t trig_irq = CSR_READ(mcause) & 0b11111;
+
+    if (trig_irq < MAX_IRQ) {
+        struct irq_data *handler_item = &irq_data[trig_irq];
+
+        // Call user handler if it exists
+        if (handler_item->handler){
+            handler_item->handler(handler_item->param);
+        }
+    }
+}
+```
+
+### Setup interrupt user API
+
+The groundwork for interrupts has been set, so finally it's time to make the user API functions.
+
+The setter function needs to be able to attach a handler to a free position in the irq_data array and configure the registers as needed to enable the CPU interrupt and peripheral interrupt. We'll keep it simple and ignore the potential to unset handlers for now. This will mean that we don't need to keep track of what handler was allocated to what position. The technical reference manual provides details on how to set the registers to get the desired outcomes, but additionally provides guidance on additional steps required when modifying the interrupt registers in Section 1.5.3. This involves temporarily disabling interrupts and forcing the CPU to wait for any write operations to be completed while changing the interrupt registers, to avoid synchronisation issues in this state.
+
+#### **`sdk.c`**
+```C
+void gpio_set_irq_handler(uint32_t pin, void (*handler)(void *), void *param) {
+    // Allocate a CPU interrupt, attach handler
+    uint32_t no = cpu_alloc_interrupt(1);
+    irq_data[no].handler = handler;
+    irq_data[no].param = param;
+
+    // Enable GPIO interrupt to detect any edge
+    REG_RW(GPIO, (0x74 + 4 * pin)) |= (3U << 7) | BIT(13);
+
+    // Save and clear global interrupt enable (bit 4)
+    uint32_t prev_mstatus = CSR_READ(mstatus);
+    CSR_WRITE(mstatus, prev_mstatus |= ~(0x8));
+
+    // Map GPIO IRQ to CPU
+    REG_RW(INTERRUPT, 0x40) = (uint32_t) no;
+    // Wait for pending write instructions to complete
+    asm("fence");
+    // Restore previous global interrupt state
+    CSR_WRITE(mstatus, prev_mstatus);
+}
+```
+
+Finally, the gpio_clear_interrupt function is just a wrapper over a single register write operation:
+
+#### **`sdk.c`**
+```C
+void gpio_clear_interrupt(uint32_t pin) {
+    REG_RW(GPIO, 0x0044) &= ~BIT(pin);
+}
+```
 
 ## Housekeeping
+
+- read hartid and panic if not in range
+- zero bss
+- re-enable wdt and feed in the delay func
 
 ## Building and flashing
 
