@@ -93,7 +93,7 @@ The first hurdle to getting our blinky code on to the chip and running will be t
 
 So on power-up, the following steps occur:
 1. Hardware startup and checks occur, then the program counter is directed to memory address 0x4000_0000 - the location of the ROM bootloader
-2. The ROM bootloader performs basic configuration tasks, loads code from flash offset 0x0 to IRAM memory and points the program counter to that location*
+2. The ROM bootloader performs basic configuration tasks, loads code from flash offset 0x0 to IRAM memory and points the program counter to that location<sup>1</sup>
 3. Instructions that were located at flash offset 0x0 begin executing
 
 If we were using ESP-IDF, Step 3 would start the ESP-IDF second-stage bootloader, and eventually our `app_main()` would be called. But there's nothing stopping us from placing our own code at that location in flash. For this particular chip, that is the closest to 'bare metal' we can be (the ROM bootloader is immutable and cannot be modified by us).
@@ -160,11 +160,12 @@ void wdt_disable(void) {
 
 That should be enough setup for now. The other functions for our blinky example (`gpio_set_output()`, `gpio_set_level()`, `delay_ms()`) follow the same pattern - read the manual, define the registers, write a function to manipulate the registers. The only thing worth mentioning is that our blocking delay reads `systicks` from a register, and calls the assembly `nop` pseudo-instruction to spin the CPU until it's time to do work again.
 
-* I reversed the ROM bootloader out of curiosity to see what was happening in that first stage of boot. For reference, the steps are roughly:
-1. Set a default interrupt and exception handler
-2. Configure bootloader memory regions
-3. Configure interface peripherals and CPU settings
-4. Attach flash by SPI, place user code in memory and start executing user code
+[!Note]
+><sup>1</sup>I reversed the ROM bootloader out of curiosity to see what was happening in that first stage of boot. For reference, the steps are roughly:
+>1. Set a default interrupt and exception handler
+>2. Configure bootloader memory regions
+>3. Configure interface peripherals and CPU settings
+>4. Attach flash by SPI, place user code in memory and start executing user code
 
 ## Build system
 
