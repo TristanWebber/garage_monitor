@@ -273,9 +273,16 @@ Using this new code, our `main.c` can easily be updated to poll the input pin an
 By now, the process of using the reference manual should be pretty familiar. Once again, we find the USB driver on the chip is a peripheral that we access by reading and writing to registers. Section 30.3.2 contains the information we need, and some information we don't. The important bits:
 
 ```
-When the firmware has data to send, it can do so by putting it in the send buffer and triggering a flush, allowing the host to receive the data in a USB packet. In order to do so, there needs to be space available in the send buffer. Firmware can check this by reading USB_REG_SERIAL_IN_EP_DATA_FREE; a one in this register field indicates there is still free room in the buffer. While this is the case, firmware can fill the buffer by writing bytes to the USB_SERIAL_JTAG_EP1_REG register.
+When the firmware has data to send, it can do so by putting it in the send buffer and triggering a flush, allowing
+the host to receive the data in a USB packet. In order to do so, there needs to be space available in the send
+buffer. Firmware can check this by reading USB_REG_SERIAL_IN_EP_DATA_FREE; a one in this register field indicates
+there is still free room in the buffer. While this is the case, firmware can fill the buffer by writing bytes to
+the USB_SERIAL_JTAG_EP1_REG register.
 
-Writing the buffer doesn’t immediately trigger sending data to the host. This does not happen until the buffer is flushed; a flush causes the entire buffer to be readied for reception by the USB host at once. A flush can be triggered in two ways: after the 64th byte is written to the buffer, the USB hardware will automatically flush the buffer to the host. Alternatively, firmware can trigger a flush by writing a one to USB_REG_SERIAL_WR_DONE.
+Writing the buffer doesn’t immediately trigger sending data to the host. This does not happen until the buffer is
+flushed; a flush causes the entire buffer to be readied for reception by the USB host at once. A flush can be
+triggered in two ways: after the 64th byte is written to the buffer, the USB hardware will automatically flush the
+buffer to the host. Alternatively, firmware can trigger a flush by writing a one to USB_REG_SERIAL_WR_DONE.
 ```
 
 OK, so a simplistic approach to output a single character to a host will be to:
@@ -512,16 +519,15 @@ void gpio_clear_interrupt(uint32_t pin) {
 }
 ```
 
-With that in place, our code will finally achieve the original objectives. There is, of course, and endless list of other things that could be added to this project, but this is a good stopping point for the exercise, in terms of functionality.
+With that in place, our code will finally achieve the original objectives. When wired up, running `make clean build flash monitor` will result in the switch state (via interrupt) and LED state (via 'task') being logged to the terminal, and the LED tracking the switch position. There is, of course, and endless list of other things that could be added to this project (my highest priorities would be to setup a timer for debounce and adding a non-blocking delay), but this is a good stopping point for the exercise, in terms of functionality.
 
 ## Housekeeping
 
-In the interests of getting quickly to something that works, some useful steps have been skipped. Here are some explanations of some final bits of housekeeping.
+In the interests of getting quickly to something that works, some useful steps were skipped when building the blinky example. Here are some explanations of code added in some final bits of housekeeping.
 
 ### Check the processor health before booting
 
-Before booting, we can attempt to read a control and status register that will have a known and constant value, to make sure the processor is working before continuing the boot process. This can be easily done by reading the control and status register `mhartid`, which should return the value 0. If any other value is returned, an infinite blocking loop will be entered.
-
+Before booting, we can attempt to read a control and status register that will have a known and constant value, to make sure the processor is working before continuing the boot process. This can be easily done by reading the control and status register `mhartid`, which should return the value 0. If any other value is returned, an infinite blocking loop will be entered. This infinite loop, if it occurred, would soon trigger a watchdog timer and the system would restart and try the boot process again.
 
 #### **`init.c`**
 ```C
