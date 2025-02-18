@@ -16,7 +16,8 @@ void __attribute__((noreturn)) call_start_cpu0(void) {
         this_word++;
     }
 
-    disable_wdt();
+    //disable_wdt();
+    init_wdt(1000);
     interrupt_init();
     main();
     for(;;) {}

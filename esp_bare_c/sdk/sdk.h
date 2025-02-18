@@ -17,7 +17,9 @@
 })
 #define CSR_SETBITS(reg, cm, sm) CSR_WRITE(reg, (CSR_READ(reg) & ~(cm)) | (sm))
 
-#define MAX_IRQ 32
+#define MAX_IRQ           32
+#define MWDT_TICKS_PER_US 500
+#define MWDT_PRESCALER    20000
 
 // Register base addresses
 #define GPIO          0x60004000
@@ -43,6 +45,12 @@
 
 // Disable all watchdog timers
 void disable_wdt(void);
+
+// Set TIMG0 as digital single stage WDT with timeout_ms timer
+void init_wdt(uint32_t timeout_ms);
+
+// Feed TIMG0 WDT
+void feed_wdt(void);
 
 /////////////////////////////////////////
 // Functions for GPIO                  //
@@ -100,6 +108,9 @@ void usb_write_byte(uint8_t byte_to_send);
 
 // Print a cstring to the USB serial device
 int usb_print(char *bytes_to_send);
+
+// Print the binary representation of a 32bit value
+void usb_print_reg_bits(uint32_t reg_val);
 
 /////////////////////////////////////////
 // Functions for interrupts            //

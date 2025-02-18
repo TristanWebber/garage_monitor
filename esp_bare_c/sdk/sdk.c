@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 /////////////////////////////////////////
-// Wrapper functions for timers        //
+// Functions for timers                //
 /////////////////////////////////////////
 
 // Disable all watchdog timers
@@ -27,8 +27,57 @@ void disable_wdt(void) {
     REG_RW(TIMER_GROUP_1, 0x48) &= ~BIT(31);     // Clear BIT 31 to disable TG1 WDT
 }
 
+// Set TIMG0 as digital single stage WDT with timeout_ms timer
+void init_wdt(uint32_t timeout_ms) {
+    // Disable write protect
+    REG_RW(TIMER_GROUP_0, 0x0064) = 0x50D83AA1;
+
+    // Disable WDT and WDT stages (clear bits 23 to 31)
+    REG_RW(TIMER_GROUP_0, 0x48) &= ~(0x1FF << 23);
+    // Force register update (set bit 22)
+    REG_RW(TIMER_GROUP_0, 0x48) |= BIT(22);
+
+    // Set values
+    // Increase reset signal pulses to max duration (set bits 15 to 20)
+    REG_RW(TIMER_GROUP_0, 0x48) |= (0x3F << 0xF);
+
+    // Set clock source as XTAL (set bit 21)
+    REG_RW(TIMER_GROUP_0, 0x48) |= BIT(21);
+
+    // Enable the clock (set bit 29)
+    REG_RW(TIMER_GROUP_0, 0xFC) |= BIT(29);
+
+    // Set the Stage 0 WDT to reset system after timeout (set bits 29 and 30)
+    REG_RW(TIMER_GROUP_0, 0x48) |= (3 << 29);
+
+    // Set the prescaler
+    REG_RW(TIMER_GROUP_0, 0x4C) |= (MWDT_PRESCALER << 16);
+
+    // Set the timeout value to timeout_ms in MWDT ticks
+    REG_RW(TIMER_GROUP_0, 0x50) = timeout_ms * 1000 / MWDT_TICKS_PER_US;
+
+    // Enable the MWDT timer (set bit 31)
+    REG_RW(TIMER_GROUP_0, 0x48) |= BIT(31);
+
+    // Force register update (set bit 22)
+    REG_RW(TIMER_GROUP_0, 0x48) |= BIT(22);
+
+    // Enable write protect
+    REG_RW(TIMER_GROUP_0, 0x0064) = 1;
+}
+
+// Feed TIMG0 WDT
+void feed_wdt(void) {
+    // Disable write protect
+    REG_RW(TIMER_GROUP_0, 0x0064) = 0x50D83AA1;
+    // Feed WDT
+    REG_RW(TIMER_GROUP_0, 0x0060) = 1;
+    // Enable write protect
+    REG_RW(TIMER_GROUP_0, 0x0064) = 1;
+}
+
 /////////////////////////////////////////
-// Wrapper functions for GPIO          //
+// Functions for GPIO                  //
 /////////////////////////////////////////
 
 // Enable / disable gpio pin
@@ -92,7 +141,12 @@ uint64_t uptime_us(void) {
 // Blocking delay in us
 void delay_us(uint64_t us) {
     uint64_t until = uptime_us() + us;
-    while (uptime_us() < until) spin(1);
+    while (uptime_us() < until){
+        if (!(uptime_us() % 10000)) {
+            feed_wdt();
+        }
+        spin(1);
+    }
 }
 
 // Blocking delay in ms
@@ -101,7 +155,7 @@ void delay_ms(uint64_t ms) {
 }
 
 /////////////////////////////////////////
-// Wrapper functions for USB interface //
+// Functions for USB interface         //
 /////////////////////////////////////////
 
 // Check if the USB serial fifo buffer is full
@@ -156,6 +210,19 @@ int usb_print(char *bytes_to_send) {
     return res;
 }
 
+// Print the binary representation of a 32bit value
+void usb_print_reg_bits(uint32_t reg_val) {
+    usb_print("Register values: 0b");
+    char reg_char[33] = {'1'};
+    reg_char[32] = '\0';
+    for(uint32_t i = 32; i > 0; i--) {
+        reg_char[i - 1] = '0' + (uint8_t)(reg_val & 0x1);
+        reg_val >>= 1;
+    }
+    usb_print(reg_char);
+    usb_print("\r\n");
+}
+
 /////////////////////////////////////////
 // Functions for interrupts            //
 /////////////////////////////////////////
@@ -183,16 +250,16 @@ void interrupt_init(void) {
 __attribute__((interrupt)) void panic_handler(void) {
     // Exception cause is last 5 bits of mcause.
     uint32_t mcause = CSR_READ(mcause) & 0b11111;
+    char *panic_template = "00\r\n";
 
     // Convert code to ascii
-    char ls_digit = (mcause % 10) + '0';
+    panic_template[0] = (mcause % 10) + '0';
     mcause /= 10;
-    char ms_digit = (mcause % 10) + '0';
+    panic_template[1] = (mcause % 10) + '0';
 
     // Print message, loop forever
     usb_print("Panic occurred. Exception code: ");
-    usb_write_byte(ls_digit); usb_write_byte(ms_digit);
-    usb_write_byte('\r'); usb_write_byte('\n');
+    usb_print(panic_template);
     while(1);
 }
 

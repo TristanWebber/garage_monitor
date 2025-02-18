@@ -541,9 +541,43 @@ while (this_word < &_ebss) {
 }
 ```
 
-### Enable wdt and feed in the delay func
+### Enable wdt
 
-TODO
+Our previous approach of disabling the WDT in order to quickly mobilise the project is not the greatest idea in the long run. A better approach is to introduce a mechanism of feeding the watchdog. One way to achieve this is to feed it using an often-called function. In this case, feeding the wdt in the blocking delays is an ideal place, because the program flow is dependent on the delays, and while in the delay, the processor is just executing 'nop' instructions.
+
+To achieve this functionality, we configure the wdt by calling `init_wdt(timeout_ms)` in the `init.c` file. This function simply sets the registers as required to initiate the wdt and set suitable defaults. Feeding the wdt is a straightforward exercise of writing any value to the appropriate register. We can call this in the `delay_us` function by adding a conditional in the blocking loop:
+
+```C
+// Blocking delay in us
+void delay_us(uint64_t us) {
+    uint64_t until = uptime_us() + us;
+    while (uptime_us() < until){
+        if (!(uptime_us() % 10000)) {
+            feed_wdt();
+        }
+        spin(1);
+    }
+}
+```
+
+### Print register contents
+
+It's often useful to dump the contents of a register to see what it contained at a particular point in time. A helper function to print individual bits of any 32bit register has been added:
+
+```C
+// Print the binary representation of a 32bit value
+void usb_print_reg_bits(uint32_t reg_val) {
+    usb_print("Register values: 0b");
+    char reg_char[33] = {'1'};
+    reg_char[32] = '\0';
+    for(uint32_t i = 32; i > 0; i--) {
+        reg_char[i - 1] = '0' + (uint8_t)(reg_val & 0x1);
+        reg_val >>= 1;
+    }
+    usb_print(reg_char);
+    usb_print("\r\n");
+}
+```
 
 ## Building and flashing
 
