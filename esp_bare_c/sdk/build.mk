@@ -1,6 +1,7 @@
 CFLAGS      ?= -Wall -Wextra -Werror=all \
                -march=rv32imc_zicsr -mabi=ilp32 \
                -Og -ffunction-sections -fdata-sections \
+               -ffreestanding \
                -I. -I$(SDK) $(EXTRA_CFLAGS)
 LINKFLAGS   ?= -T$(SDK)/link.ld -nostartfiles $(EXTRA_LINKFLAGS)
 FLASHFLAGS  ?= --baud 460800 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size 4MB 0x0
