@@ -160,7 +160,7 @@ void wdt_disable(void) {
 
 That should be enough setup for now. The other functions for our blinky example (`gpio_set_output()`, `gpio_set_level()`, `delay_ms()`) follow the same pattern - read the manual, define the registers, write a function to manipulate the registers. The only thing worth mentioning is that our blocking delay reads `systicks` from a register, and calls the assembly `nop` pseudo-instruction to spin the CPU until it's time to do work again.
 
-[!Note]
+[!NOTE]
 ><sup>1</sup>I reversed the ROM bootloader out of curiosity to see what was happening in that first stage of boot. For reference, the steps are roughly:
 >1. Set a default interrupt and exception handler
 >2. Configure bootloader memory regions
