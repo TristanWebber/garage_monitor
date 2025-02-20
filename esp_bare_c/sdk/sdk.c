@@ -300,7 +300,7 @@ int32_t cpu_alloc_interrupt(uint32_t prio) {
     REG_RW(INTERRUPT, 0x118 + (4 * (allocated - 1))) = prio;
 
     // Wait for pending write instructions to complete
-    asm("fence");
+    asm volatile ("fence");
     // Restore previous global interrupt state
     CSR_WRITE(mstatus, prev_mstatus);
     return allocated;
@@ -326,7 +326,7 @@ void gpio_set_irq_handler(uint32_t pin, void (*handler)(void *), void *param) {
     // Map GPIO IRQ to CPU
     REG_RW(INTERRUPT, 0x40) = (uint32_t) no;
     // Wait for pending write instructions to complete
-    asm("fence");
+    asm volatile ("fence");
     // Restore previous global interrupt state
     CSR_WRITE(mstatus, prev_mstatus);
 }

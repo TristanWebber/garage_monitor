@@ -10,7 +10,7 @@ void __attribute__((noreturn)) call_start_cpu0(void) {
     while (hartid);
 
     // Clear .bss
-    uint32_t *this_word = &_sbss;
+    volatile uint32_t *this_word = &_sbss;
     while (this_word < &_ebss) {
         *this_word = 0;
         this_word++;
