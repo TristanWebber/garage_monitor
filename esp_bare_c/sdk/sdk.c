@@ -142,7 +142,8 @@ uint64_t uptime_us(void) {
 void delay_us(uint64_t us) {
     uint64_t until = uptime_us() + us;
     while (uptime_us() < until){
-        if (!(uptime_us() % 10000)) {
+        // Feed every 0x2000 us. Bit bashing to avoid the compiler linking 64bit division function
+        if (!((uptime_us() & 0x3FFF) == 0x2000)) {
             feed_wdt();
         }
         spin(1);
@@ -230,8 +231,8 @@ void usb_print_reg_bits(uint32_t reg_val) {
 // C handlers associated with CPU interrupts, with their arguments
 struct irq_data irq_data[MAX_IRQ];
 
-// Create 32-entry vector table with correct byte alignment
-__attribute__((aligned(256))) void vector_table(void) {
+// Create 32-entry vector table with correct byte alignment and no epilogue
+__attribute__((aligned(256), __naked__)) void vector_table(void) {
     asm("j panic_handler");
     asm(".rept 31");
     asm("j interrupt_handler");
