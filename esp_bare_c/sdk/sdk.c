@@ -143,7 +143,7 @@ void delay_us(uint64_t us) {
     uint64_t until = uptime_us() + us;
     while (uptime_us() < until){
         // Feed every 0x2000 us. Bit bashing to avoid the compiler linking 64bit division function
-        if (!((uptime_us() & 0x3FFF) == 0x2000)) {
+        if ((uptime_us() & 0x3FFF) == 0x2000) {
             feed_wdt();
         }
         spin(1);
