@@ -254,9 +254,9 @@ __attribute__((interrupt)) void panic_handler(void) {
     char *panic_template = "00\r\n";
 
     // Convert code to ascii
-    panic_template[0] = (mcause % 10) + '0';
-    mcause /= 10;
     panic_template[1] = (mcause % 10) + '0';
+    mcause /= 10;
+    panic_template[0] = (mcause % 10) + '0';
 
     // Print message, loop forever
     usb_print("Panic occurred. Exception code: ");
